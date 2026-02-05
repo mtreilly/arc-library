@@ -132,3 +132,24 @@ type FlashcardListOptions struct {
 	Due        bool      // only due cards
 	Limit      int
 }
+
+// Task represents a todo item, often associated with a collection.
+type Task struct {
+	ID           string     `json:"id" yaml:"id"`
+	Description  string     `json:"description" yaml:"description"`
+	CollectionID string     `json:"collection_id,omitempty" yaml:"collection_id,omitempty"`
+	Status       string     `json:"status" yaml:"status"` // todo, done
+	Priority     string     `json:"priority,omitempty" yaml:"priority,omitempty"` // low, medium, high
+	Tags         []string   `json:"tags,omitempty" yaml:"tags,omitempty"`
+	DueAt        *time.Time `json:"due_at,omitempty" yaml:"due_at,omitempty"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty" yaml:"completed_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at" yaml:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at" yaml:"updated_at"`
+}
+
+// TaskListOptions filters task listing.
+type TaskListOptions struct {
+	CollectionID string
+	Status       string
+	Limit        int
+}

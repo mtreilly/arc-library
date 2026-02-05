@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -25,6 +26,7 @@ func newFlashcardCmd(cfg *config.Config, store library.LibraryStore) *cobra.Comm
 	cmd.AddCommand(newFlashcardReviewCmd(store))
 	cmd.AddCommand(newFlashcardDeleteCmd(store))
 	cmd.AddCommand(newFlashcardDueCmd(store))
+	cmd.AddCommand(newFlashcardExportCmd(store))
 
 	return cmd
 }
@@ -311,6 +313,90 @@ func newFlashcardDueCmd(store library.LibraryStore) *cobra.Command {
 
 	cmd.Flags().IntVarP(&limit, "limit", "n", 0, "Limit number of cards shown")
 	out.AddOutputFlags(cmd, output.OutputJSON)
+
+	return cmd
+}
+
+func newFlashcardExportCmd(store library.LibraryStore) *cobra.Command {
+	var (
+		format   string
+		output   string
+		deckName string
+		dueOnly  bool
+		docID    string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export flashcards to Anki or other formats",
+		Long:  "Export flashcards as .apkg files for Anki or other formats",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "anki" {
+				return fmt.Errorf("unsupported format: %s (only 'anki' supported)", format)
+			}
+
+			// Get cards to export
+			opts := &library.FlashcardListOptions{}
+			if dueOnly {
+				opts.Due = true
+			}
+			if docID != "" {
+				opts.DocumentID = docID
+			}
+
+			var cards []*library.Flashcard
+			var err error
+
+			if dueOnly {
+				cards, err = store.GetDueFlashcards(time.Now())
+			} else {
+				cards, err = store.ListFlashcards(opts)
+			}
+			if err != nil {
+				return fmt.Errorf("list flashcards: %w", err)
+			}
+
+			if len(cards) == 0 {
+				fmt.Println("No flashcards to export")
+				return nil
+			}
+
+			// Determine output file
+			if output == "" {
+				output = "flashcards.apkg"
+			}
+
+			// Create exporter
+			exporter := library.NewAnkiExporter(deckName)
+
+			// Create output file
+			file, err := os.Create(output)
+			if err != nil {
+				return fmt.Errorf("create output file: %w", err)
+			}
+			defer file.Close()
+
+			// Export
+			if err := exporter.ExportCards(cards, file); err != nil {
+				return fmt.Errorf("export cards: %w", err)
+			}
+
+			fmt.Printf("Exported %d flashcards to %s\n", len(cards), output)
+			fmt.Printf("Deck name: %s\n", deckName)
+			fmt.Println("\nImport into Anki:")
+			fmt.Println("1. Open Anki")
+			fmt.Println("2. File > Import")
+			fmt.Printf("3. Select: %s\n", output)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&format, "format", "f", "anki", "Export format (anki)")
+	cmd.Flags().StringVarP(&output, "output", "o", "flashcards.apkg", "Output file")
+	cmd.Flags().StringVarP(&deckName, "deck", "d", "Arc Library", "Anki deck name")
+	cmd.Flags().BoolVar(&dueOnly, "due", false, "Export only due cards")
+	cmd.Flags().StringVar(&docID, "document", "", "Export cards for specific document only")
 
 	return cmd
 }

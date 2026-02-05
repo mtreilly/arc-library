@@ -38,6 +38,8 @@ arc-library provides tools to:
 	root.AddCommand(newAICmd(cfg, store))
 	root.AddCommand(newDuplicatesCmd(cfg, store))
 	root.AddCommand(newWatchCmd(cfg, store))
+	root.AddCommand(newTaskCmd(cfg, store))
+	root.AddCommand(newWebCmd(cfg, store))
 
 	return root
 }
