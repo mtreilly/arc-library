@@ -1257,3 +1257,26 @@ func (s *KVStore) getFlashcardIndex() ([]string, error) {
 	}
 	return ids, nil
 }
+
+// Task operations (Phase 3) - Stubs for KVStore
+// TODO: Implement proper task support for KV backend
+
+func (s *KVStore) AddTask(t *Task) error {
+	return fmt.Errorf("tasks not yet implemented for KV store: use SQL backend")
+}
+
+func (s *KVStore) GetTask(id string) (*Task, error) {
+	return nil, fmt.Errorf("tasks not yet implemented for KV store: use SQL backend")
+}
+
+func (s *KVStore) ListTasks(opts *TaskListOptions) ([]*Task, error) {
+	return nil, fmt.Errorf("tasks not yet implemented for KV store: use SQL backend")
+}
+
+func (s *KVStore) UpdateTask(t *Task) error {
+	return fmt.Errorf("tasks not yet implemented for KV store: use SQL backend")
+}
+
+func (s *KVStore) DeleteTask(id string) error {
+	return fmt.Errorf("tasks not yet implemented for KV store: use SQL backend")
+}

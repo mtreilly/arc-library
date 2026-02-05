@@ -127,6 +127,23 @@ func (s *Store) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_flashcards_due ON flashcards(due_at);
 	CREATE INDEX IF NOT EXISTS idx_flashcards_document ON flashcards(document_id);
 	CREATE INDEX IF NOT EXISTS idx_reviews_flashcard ON flashcard_reviews(flashcard_id);
+
+	CREATE TABLE IF NOT EXISTS tasks (
+		id TEXT PRIMARY KEY,
+		description TEXT NOT NULL,
+		collection_id TEXT,
+		status TEXT NOT NULL DEFAULT 'todo',
+		priority TEXT DEFAULT 'medium',
+		tags TEXT DEFAULT '[]',
+		due_at DATETIME,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE SET NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_tasks_collection ON tasks(collection_id);
+	CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+	CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_at);
 	`
 
 	// Full-text search virtual table (FTS5)
@@ -919,4 +936,128 @@ func (s *Store) GetDueFlashcards(now time.Time) ([]*Flashcard, error) {
 		cards = append(cards, c)
 	}
 	return cards, nil
+}
+
+// Task operations (Phase 3)
+
+func (s *Store) AddTask(t *Task) error {
+	if t.ID == "" {
+		t.ID = fmt.Sprintf("task:%d", time.Now().UnixNano())
+	}
+	t.CreatedAt = time.Now()
+	t.UpdatedAt = time.Now()
+
+	tagsJSON, _ := json.Marshal(t.Tags)
+	
+	var dueAt interface{}
+	if t.DueAt != nil {
+		dueAt = *t.DueAt
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO tasks (id, description, collection_id, status, priority, tags, due_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, t.ID, t.Description, t.CollectionID, t.Status, t.Priority, string(tagsJSON), dueAt, t.CreatedAt, t.UpdatedAt)
+	
+	return err
+}
+
+func (s *Store) GetTask(id string) (*Task, error) {
+	var t Task
+	var tagsJSON string
+	var dueAt sql.NullTime
+	var completedAt sql.NullTime
+
+	err := s.db.QueryRow(`
+		SELECT id, description, collection_id, status, priority, tags, due_at, created_at, updated_at
+		FROM tasks WHERE id = ?
+	`, id).Scan(&t.ID, &t.Description, &t.CollectionID, &t.Status, &t.Priority, &tagsJSON, &dueAt, &t.CreatedAt, &t.UpdatedAt)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	json.Unmarshal([]byte(tagsJSON), &t.Tags)
+	if dueAt.Valid {
+		t.DueAt = &dueAt.Time
+	}
+	if completedAt.Valid {
+		t.CompletedAt = &completedAt.Time
+	}
+	
+	return &t, nil
+}
+
+func (s *Store) ListTasks(opts *TaskListOptions) ([]*Task, error) {
+	query := `SELECT id, description, collection_id, status, priority, tags, due_at, created_at, updated_at FROM tasks WHERE 1=1`
+	var args []any
+
+	if opts != nil {
+		if opts.CollectionID != "" {
+			query += ` AND collection_id = ?`
+			args = append(args, opts.CollectionID)
+		}
+		if opts.Status != "" {
+			query += ` AND status = ?`
+			args = append(args, opts.Status)
+		}
+	}
+
+	query += ` ORDER BY created_at DESC`
+
+	if opts != nil && opts.Limit > 0 {
+		query += fmt.Sprintf(` LIMIT %d`, opts.Limit)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []*Task
+	for rows.Next() {
+		var t Task
+		var tagsJSON string
+		var dueAt sql.NullTime
+		
+		err := rows.Scan(&t.ID, &t.Description, &t.CollectionID, &t.Status, &t.Priority, &tagsJSON, &dueAt, &t.CreatedAt, &t.UpdatedAt)
+		if err != nil {
+			continue
+		}
+		
+		json.Unmarshal([]byte(tagsJSON), &t.Tags)
+		if dueAt.Valid {
+			t.DueAt = &dueAt.Time
+		}
+		
+		tasks = append(tasks, &t)
+	}
+	
+	return tasks, nil
+}
+
+func (s *Store) UpdateTask(t *Task) error {
+	t.UpdatedAt = time.Now()
+	tagsJSON, _ := json.Marshal(t.Tags)
+	
+	var dueAt interface{}
+	if t.DueAt != nil {
+		dueAt = *t.DueAt
+	}
+
+	_, err := s.db.Exec(`
+		UPDATE tasks SET description = ?, collection_id = ?, status = ?, priority = ?, tags = ?, due_at = ?, updated_at = ?
+		WHERE id = ?
+	`, t.Description, t.CollectionID, t.Status, t.Priority, string(tagsJSON), dueAt, t.UpdatedAt, t.ID)
+	
+	return err
+}
+
+func (s *Store) DeleteTask(id string) error {
+	_, err := s.db.Exec(`DELETE FROM tasks WHERE id = ?`, id)
+	return err
 }

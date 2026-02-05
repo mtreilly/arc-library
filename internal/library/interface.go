@@ -49,4 +49,11 @@ type LibraryStore interface {
 	ReviewFlashcard(id string, quality int) (*Flashcard, error) // quality 0-5, updates interval/ease
 	ListFlashcardReviews(flashcardID string) ([]*FlashcardReview, error)
 	GetDueFlashcards(now time.Time) ([]*Flashcard, error)
+
+	// Task operations (Phase 3)
+	AddTask(*Task) error
+	GetTask(id string) (*Task, error)
+	ListTasks(opts *TaskListOptions) ([]*Task, error)
+	UpdateTask(*Task) error
+	DeleteTask(id string) error
 }
