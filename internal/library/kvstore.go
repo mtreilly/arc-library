@@ -1280,3 +1280,21 @@ func (s *KVStore) UpdateTask(t *Task) error {
 func (s *KVStore) DeleteTask(id string) error {
 	return fmt.Errorf("tasks not yet implemented for KV store: use SQL backend")
 }
+
+// SavedSearch operations - Stubs for KVStore
+
+func (s *KVStore) SaveSearch(ss *SavedSearch) error {
+	return fmt.Errorf("saved searches not yet implemented for KV store: use SQL backend")
+}
+
+func (s *KVStore) GetSavedSearch(idOrName string) (*SavedSearch, error) {
+	return nil, fmt.Errorf("saved searches not yet implemented for KV store: use SQL backend")
+}
+
+func (s *KVStore) ListSavedSearches() ([]*SavedSearch, error) {
+	return nil, fmt.Errorf("saved searches not yet implemented for KV store: use SQL backend")
+}
+
+func (s *KVStore) DeleteSavedSearch(id string) error {
+	return fmt.Errorf("saved searches not yet implemented for KV store: use SQL backend")
+}

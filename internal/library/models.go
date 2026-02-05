@@ -153,3 +153,16 @@ type TaskListOptions struct {
 	Status       string
 	Limit        int
 }
+
+// SavedSearch represents a bookmarked search query
+type SavedSearch struct {
+	ID          string    `json:"id" yaml:"id"`
+	Name        string    `json:"name" yaml:"name"`
+	Query       string    `json:"query" yaml:"query"`
+	Tag         string    `json:"tag,omitempty" yaml:"tag,omitempty"`
+	Source      string    `json:"source,omitempty" yaml:"source,omitempty"`
+	Type        string    `json:"type,omitempty" yaml:"type,omitempty"`
+	Description string    `json:"description,omitempty" yaml:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at" yaml:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" yaml:"updated_at"`
+}
