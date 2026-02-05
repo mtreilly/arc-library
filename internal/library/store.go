@@ -267,8 +267,22 @@ func scanDocument(row *sql.Row) (*Document, error) {
 
 // ListDocuments returns all documents, optionally filtered.
 func (s *Store) ListDocuments(opts *ListOptions) ([]*Document, error) {
-	query := `SELECT id, type, path, source, source_id, title, authors, abstract, full_text, tags, notes, rating, status, read_at, meta, created_at, updated_at FROM documents WHERE 1=1`
-	var args []any
+	var (
+		query string
+		args  []any
+	)
+
+	if opts != nil && opts.Search != "" {
+		// Use FTS5 for full-text search
+		query = `
+			SELECT d.id, d.type, d.path, d.source, d.source_id, d.title, d.authors, d.abstract, d.full_text, d.tags, d.notes, d.rating, d.status, d.read_at, d.meta, d.created_at, d.updated_at
+			FROM documents d
+			JOIN documents_fts fts ON d.id = fts.rowid
+			WHERE documents_fts MATCH ?`
+		args = append(args, opts.Search)
+	} else {
+		query = `SELECT id, type, path, source, source_id, title, authors, abstract, full_text, tags, notes, rating, status, read_at, meta, created_at, updated_at FROM documents WHERE 1=1`
+	}
 
 	if opts != nil {
 		if opts.Tag != "" {
@@ -278,11 +292,6 @@ func (s *Store) ListDocuments(opts *ListOptions) ([]*Document, error) {
 		if opts.Source != "" {
 			query += ` AND source = ?`
 			args = append(args, opts.Source)
-		}
-		if opts.Search != "" {
-			query += ` AND (title LIKE ? OR abstract LIKE ? OR notes LIKE ? OR full_text LIKE ?)`
-			search := "%" + opts.Search + "%"
-			args = append(args, search, search, search, search)
 		}
 		if opts.Type != "" {
 			query += ` AND type = ?`
