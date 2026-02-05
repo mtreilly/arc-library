@@ -12,7 +12,7 @@ import (
 	"github.com/yourorg/arc-sdk/output"
 )
 
-func newAnnotateCmd(cfg *config.Config, store *library.Store) *cobra.Command {
+func newAnnotateCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "annotate",
 		Aliases: []string{"ann", "note"},
@@ -27,7 +27,7 @@ func newAnnotateCmd(cfg *config.Config, store *library.Store) *cobra.Command {
 	return cmd
 }
 
-func newAnnotateAddCmd(store *library.Store) *cobra.Command {
+func newAnnotateAddCmd(store library.LibraryStore) *cobra.Command {
 	var page int
 	var annType string
 	var color string
@@ -89,7 +89,7 @@ Examples:
 	return cmd
 }
 
-func newAnnotateListCmd(store *library.Store) *cobra.Command {
+func newAnnotateListCmd(store library.LibraryStore) *cobra.Command {
 	var out output.OutputOptions
 
 	cmd := &cobra.Command{
@@ -154,7 +154,7 @@ func newAnnotateListCmd(store *library.Store) *cobra.Command {
 	return cmd
 }
 
-func newAnnotateDeleteCmd(store *library.Store) *cobra.Command {
+func newAnnotateDeleteCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <annotation-id>",
 		Short: "Delete an annotation",
