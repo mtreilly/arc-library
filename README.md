@@ -228,6 +228,32 @@ arc-library import paper.pdf --doi 10.1234/5678 --resolve-doi
 
 This fetches title, authors, abstract, and publication year.
 
+### Flashcards (Spaced Repetition)
+
+Transform your annotations or create new cards for active recall learning:
+
+```bash
+# Create a basic flashcard
+arc-library flashcard add --document <doc-id> --front "What is the capital of France?" --back "Paris" --tag geography
+
+# Create a cloze deletion card
+arc-library flashcard add --document <doc-id> --type cloze --cloze "The capital of France is {{c1::Paris}}" --tag geography
+
+# List all due cards
+arc-library flashcard due
+
+# Review a card (rate recall 0-5)
+arc-library flashcard review <card-id> --quality 4
+
+# List all cards for a document
+arc-library flashcard list --document <doc-id>
+
+# Delete a card
+arc-library flashcard delete <card-id>
+```
+
+The flashcard system uses the SM-2 algorithm (like Anki) to schedule reviews. Cards automatically update their due date based on your rating quality.
+
 ### Reading goals
 
 Use `arc-library stats` to see how much you've been reading:
