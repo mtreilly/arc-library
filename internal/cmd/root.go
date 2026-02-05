@@ -37,6 +37,7 @@ arc-library provides tools to:
 	root.AddCommand(newExportCmd(cfg, store))
 	root.AddCommand(newAICmd(cfg, store))
 	root.AddCommand(newDuplicatesCmd(cfg, store))
+	root.AddCommand(newWatchCmd(cfg, store))
 
 	return root
 }
