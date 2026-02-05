@@ -68,8 +68,10 @@ func newExportCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command
 				outBytes, err = exportMarkdown(docs, store)
 			case "json":
 				outBytes, err = exportJSON(docs)
+			case "ris":
+				outBytes, err = exportRIS(docs)
 			default:
-				return fmt.Errorf("unsupported format: %s (choose bibtex, markdown, json)", format)
+				return fmt.Errorf("unsupported format: %s (choose bibtex, markdown, json, ris)", format)
 			}
 			if err != nil {
 				return fmt.Errorf("export %s: %w", format, err)
@@ -270,4 +272,81 @@ func min(a, b int) int {
 // exportJSON just re-serializes documents (could add filtering/transformation)
 func exportJSON(docs []*library.Document) ([]byte, error) {
 	return json.MarshalIndent(docs, "", "  ")
+}
+
+// exportRIS converts documents to RIS format (reference standard).
+func exportRIS(docs []*library.Document) ([]byte, error) {
+	var buf bytes.Buffer
+
+	for _, doc := range docs {
+		// RIS type
+		risType := "JOUR" // default journal article
+		if doc.Type == library.DocTypeBook {
+			risType = "BOOK"
+		} else if doc.Type == library.DocTypeOther {
+			risType = "GEN"
+		}
+		buf.WriteString(fmt.Sprintf("TY  - %s\n", risType))
+
+		// Title
+		if doc.Title != "" {
+			buf.WriteString(fmt.Sprintf("TI  - %s\n", doc.Title))
+		}
+
+		// Authors
+		for _, author := range doc.Authors {
+			buf.WriteString(fmt.Sprintf("AU  - %s\n", author))
+		}
+
+		// Year
+		year := doc.CreatedAt.Year()
+		if y, ok := doc.Meta["year"].(int); ok {
+			year = y
+		}
+		if year > 0 {
+			buf.WriteString(fmt.Sprintf("PY  - %d\n", year))
+		}
+
+		// Journal / container
+		if journal, ok := doc.Meta["journal"].(string); ok && journal != "" {
+			buf.WriteString(fmt.Sprintf("JO  - %s\n", journal))
+		}
+
+		// Abstract
+		if doc.Abstract != "" {
+			buf.WriteString(fmt.Sprintf("AB  - %s\n", doc.Abstract))
+		}
+
+		// DOI
+		if doc.Source == "doi" && doc.SourceID != "" {
+			buf.WriteString(fmt.Sprintf("DO  - %s\n", doc.SourceID))
+		}
+
+		// arXiv ID
+		if doc.Source == "arxiv" && doc.SourceID != "" {
+			buf.WriteString(fmt.Sprintf("UR  - https://arxiv.org/abs/%s\n", doc.SourceID))
+		}
+
+		// URL if present in meta
+		if url, ok := doc.Meta["url"].(string); ok && url != "" {
+			buf.WriteString(fmt.Sprintf("UR  - %s\n", url))
+		}
+
+		// Local file
+		if doc.Path != "" {
+			buf.WriteString(fmt.Sprintf("L1  - %s\n", doc.Path))
+		}
+
+		// Tags as keywords
+		if len(doc.Tags) > 0 {
+			for _, tag := range doc.Tags {
+				buf.WriteString(fmt.Sprintf("KW  - %s\n", tag))
+			}
+		}
+
+		// End record
+		buf.WriteString("ER  - \n\n")
+	}
+
+	return buf.Bytes(), nil
 }
