@@ -114,12 +114,26 @@ arc-library annotate delete <annotation-id>
 
 ## Data Storage
 
-arc-library uses a SQLite database (via arc-sdk) to store:
-- Paper metadata and user data (tags, notes, ratings)
-- Collections and collection memberships
-- Annotations
+arc-library supports multiple storage backends through the `ARC_LIBRARY_STORAGE` environment variable:
 
-The actual paper files (PDFs, meta.yaml) remain on the filesystem - arc-library only indexes and enriches them.
+- **`sql`** (default): Traditional relational storage using custom SQLite schema. Supports advanced queries and indexes. Recommended for large libraries.
+- **`kv`**: Key-value store using JSON documents in SQLite. Simpler schema, but list operations scan all papers (suitable for small libraries, <1000 papers).
+- **`memory`**: In-memory only, no persistence. Useful for ephemeral sessions or testing.
+
+All backends use the same default SQLite file (`~/.local/share/arc/arc.db`) unless configured otherwise. The actual paper files (PDFs, meta.yaml) remain on the filesystem - arc-library only indexes and enriches them.
+
+### Examples
+
+```bash
+# Use KV store (JSON documents)
+ARC_LIBRARY_STORAGE=kv arc-library list
+
+# Use in-memory store (stateless)
+ARC_LIBRARY_STORAGE=memory arc-library list
+
+# Default (SQL)
+arc-library list
+```
 
 ## Related Tools
 

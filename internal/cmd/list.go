@@ -13,7 +13,7 @@ import (
 	"github.com/yourorg/arc-sdk/output"
 )
 
-func newListCmd(cfg *config.Config, store *library.Store) *cobra.Command {
+func newListCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 	var out output.OutputOptions
 	var tag string
 	var source string

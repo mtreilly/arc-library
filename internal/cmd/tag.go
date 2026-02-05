@@ -13,7 +13,7 @@ import (
 	"github.com/yourorg/arc-sdk/output"
 )
 
-func newTagCmd(cfg *config.Config, store *library.Store) *cobra.Command {
+func newTagCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tag",
 		Short: "Manage paper tags",
@@ -27,7 +27,7 @@ func newTagCmd(cfg *config.Config, store *library.Store) *cobra.Command {
 	return cmd
 }
 
-func newTagAddCmd(store *library.Store) *cobra.Command {
+func newTagAddCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
 		Use:   "add <paper-id> <tag> [tag...]",
 		Short: "Add tags to a paper",
@@ -64,7 +64,7 @@ func newTagAddCmd(store *library.Store) *cobra.Command {
 	}
 }
 
-func newTagRemoveCmd(store *library.Store) *cobra.Command {
+func newTagRemoveCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove <paper-id> <tag> [tag...]",
 		Short: "Remove tags from a paper",
@@ -99,7 +99,7 @@ func newTagRemoveCmd(store *library.Store) *cobra.Command {
 	}
 }
 
-func newTagListCmd(store *library.Store) *cobra.Command {
+func newTagListCmd(store library.LibraryStore) *cobra.Command {
 	var out output.OutputOptions
 
 	cmd := &cobra.Command{

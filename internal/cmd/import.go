@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func newImportCmd(cfg *config.Config, store *library.Store) *cobra.Command {
+func newImportCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 	var tags []string
 	var collection string
 

@@ -4,19 +4,13 @@
 package cmd
 
 import (
-	"database/sql"
-
 	"github.com/spf13/cobra"
 	"github.com/mtreilly/arc-library/internal/library"
 	"github.com/yourorg/arc-sdk/config"
 )
 
 // NewRootCmd creates the root command for arc-library.
-func NewRootCmd(cfg *config.Config, db *sql.DB) *cobra.Command {
-	store, err := library.NewStore(db)
-	if err != nil {
-		panic(err)
-	}
+func NewRootCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   "arc-library",

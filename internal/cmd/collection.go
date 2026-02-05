@@ -12,7 +12,7 @@ import (
 	"github.com/yourorg/arc-sdk/output"
 )
 
-func newCollectionCmd(cfg *config.Config, store *library.Store) *cobra.Command {
+func newCollectionCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "collection",
 		Aliases: []string{"coll", "c"},
@@ -30,7 +30,7 @@ func newCollectionCmd(cfg *config.Config, store *library.Store) *cobra.Command {
 	return cmd
 }
 
-func newCollectionCreateCmd(store *library.Store) *cobra.Command {
+func newCollectionCreateCmd(store library.LibraryStore) *cobra.Command {
 	var description string
 
 	cmd := &cobra.Command{
@@ -60,7 +60,7 @@ func newCollectionCreateCmd(store *library.Store) *cobra.Command {
 	return cmd
 }
 
-func newCollectionListCmd(store *library.Store) *cobra.Command {
+func newCollectionListCmd(store library.LibraryStore) *cobra.Command {
 	var out output.OutputOptions
 
 	cmd := &cobra.Command{
@@ -101,7 +101,7 @@ func newCollectionListCmd(store *library.Store) *cobra.Command {
 	return cmd
 }
 
-func newCollectionShowCmd(store *library.Store) *cobra.Command {
+func newCollectionShowCmd(store library.LibraryStore) *cobra.Command {
 	var out output.OutputOptions
 
 	cmd := &cobra.Command{
@@ -165,7 +165,7 @@ func newCollectionShowCmd(store *library.Store) *cobra.Command {
 	return cmd
 }
 
-func newCollectionAddCmd(store *library.Store) *cobra.Command {
+func newCollectionAddCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
 		Use:   "add <collection> <paper-id> [paper-id...]",
 		Short: "Add papers to a collection",
@@ -211,7 +211,7 @@ func newCollectionAddCmd(store *library.Store) *cobra.Command {
 	}
 }
 
-func newCollectionRemoveCmd(store *library.Store) *cobra.Command {
+func newCollectionRemoveCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove <collection> <paper-id> [paper-id...]",
 		Short: "Remove papers from a collection",
@@ -256,7 +256,7 @@ func newCollectionRemoveCmd(store *library.Store) *cobra.Command {
 	}
 }
 
-func newCollectionDeleteCmd(store *library.Store) *cobra.Command {
+func newCollectionDeleteCmd(store library.LibraryStore) *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
