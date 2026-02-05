@@ -33,6 +33,7 @@ arc-library provides tools to:
 	root.AddCommand(newAnnotateCmd(cfg, store))
 	root.AddCommand(newSessionCmd(cfg, store))
 	root.AddCommand(newStatsCmd(cfg, store))
+	root.AddCommand(newFlashcardCmd(cfg, store))
 
 	return root
 }

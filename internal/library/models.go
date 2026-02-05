@@ -89,6 +89,33 @@ const (
 	StatusArchived  ReadingStatus = "archived"
 )
 
+// Flashcard represents a spaced repetition card.
+type Flashcard struct {
+	ID          string    `json:"id" yaml:"id"`
+	DocumentID  string    `json:"document_id" yaml:"document_id"`
+	Type        string    `json:"type" yaml:"type"` // "basic", "cloze"
+	Front       string    `json:"front" yaml:"front"`
+	Back        string    `json:"back,omitempty" yaml:"back,omitempty"`
+	Cloze       string    `json:"cloze,omitempty" yaml:"cloze,omitempty"` // Cloze deletion pattern: {{c1::text}}
+	Tags        []string  `json:"tags,omitempty" yaml:"tags,omitempty"`
+	DueAt       time.Time `json:"due_at" yaml:"due_at"`
+	Interval    int       `json:"interval" yaml:"interval"`     // days until next review
+	Ease        float64   `json:"ease" yaml:"ease"`             // SM-2 ease factor (1.3-2.5)
+	LastReview  time.Time `json:"last_review,omitempty" yaml:"last_review,omitempty"`
+	CreatedAt   time.Time `json:"created_at" yaml:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" yaml:"updated_at"`
+}
+
+// FlashcardReview represents a single review attempt.
+type FlashcardReview struct {
+	ID          string    `json:"id" yaml:"id"`
+	FlashcardID string    `json:"flashcard_id" yaml:"flashcard_id"`
+	Quality     int       `json:"quality" yaml:"quality"` // 0-5: SM-2 quality score
+	ReviewedAt  time.Time `json:"reviewed_at" yaml:"reviewed_at"`
+	PrevInterval int      `json:"prev_interval,omitempty" yaml:"prev_interval,omitempty"`
+	PrevEase    float64  `json:"prev_ease,omitempty" yaml:"prev_ease,omitempty"`
+}
+
 // ListOptions filters document listing.
 type ListOptions struct {
 	Tag    string
@@ -96,4 +123,12 @@ type ListOptions struct {
 	Search string
 	Type   string
 	Limit  int
+}
+
+// FlashcardListOptions filters flashcard listing.
+type FlashcardListOptions struct {
+	DocumentID string
+	Tag        string
+	Due        bool      // only due cards
+	Limit      int
 }

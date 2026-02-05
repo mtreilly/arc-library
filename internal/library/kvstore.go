@@ -904,3 +904,356 @@ func (s *KVStore) getDocumentSessionsIndex(documentID string) ([]string, error) 
 	}
 	return ids, nil
 }
+
+// Flashcard operations (Phase 2)
+
+func (s *KVStore) AddFlashcard(card *Flashcard) error {
+	if card.ID == "" {
+		card.ID = fmt.Sprintf("flashcard:%d", time.Now().UnixNano())
+	}
+	now := time.Now()
+	card.CreatedAt = now
+	card.UpdatedAt = now
+
+	ctx := context.Background()
+	key := s.generateKey("flashcard", card.ID)
+	data, err := json.Marshal(card)
+	if err != nil {
+		return fmt.Errorf("marshal flashcard: %w", err)
+	}
+	if err := s.kv.Set(ctx, key, data); err != nil {
+		return err
+	}
+
+	// Add to flashcard index
+	if err := s.addToFlashcardIndex(card.ID); err != nil {
+		// Log but don't fail
+	}
+
+	return nil
+}
+
+func (s *KVStore) GetFlashcard(id string) (*Flashcard, error) {
+	ctx := context.Background()
+	key := s.generateKey("flashcard", id)
+	data, err := s.kv.Get(ctx, key)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var c Flashcard
+	if err := json.Unmarshal(data, &c); err != nil {
+		return nil, fmt.Errorf("unmarshal flashcard: %w", err)
+	}
+	return &c, nil
+}
+
+func (s *KVStore) ListFlashcards(opts *FlashcardListOptions) ([]*Flashcard, error) {
+	ctx := context.Background()
+
+	indexKey := s.generateKey("index", "flashcards")
+	idsData, err := s.kv.Get(ctx, indexKey)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+
+	var ids []string
+	if err == nil {
+		if err := json.Unmarshal(idsData, &ids); err != nil {
+			ids = []string{}
+		}
+	}
+
+	var cards []*Flashcard
+	for _, id := range ids {
+		card, err := s.GetFlashcard(id)
+		if err != nil {
+			continue
+		}
+		if card == nil {
+			continue
+		}
+
+		// Apply filters
+		if opts != nil {
+			if opts.DocumentID != "" && card.DocumentID != opts.DocumentID {
+				continue
+			}
+			if opts.Tag != "" {
+				found := false
+				for _, t := range card.Tags {
+					if strings.EqualFold(t, opts.Tag) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
+			if opts.Due && card.DueAt.After(time.Now()) {
+				continue
+			}
+		}
+
+		cards = append(cards, card)
+
+		if opts != nil && opts.Limit > 0 && len(cards) >= opts.Limit {
+			break
+		}
+	}
+
+	// Sort by due date ascending
+	for i := 1; i < len(cards); i++ {
+		j := i
+		for j > 0 && cards[j-1].DueAt.After(cards[j].DueAt) {
+			cards[j-1], cards[j] = cards[j], cards[j-1]
+			j--
+		}
+	}
+
+	return cards, nil
+}
+
+func (s *KVStore) UpdateFlashcard(card *Flashcard) error {
+	existing, err := s.GetFlashcard(card.ID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return fmt.Errorf("flashcard not found: %s", card.ID)
+	}
+
+	card.CreatedAt = existing.CreatedAt
+	card.UpdatedAt = time.Now()
+
+	ctx := context.Background()
+	key := s.generateKey("flashcard", card.ID)
+	data, err := json.Marshal(card)
+	if err != nil {
+		return fmt.Errorf("marshal flashcard: %w", err)
+	}
+	return s.kv.Set(ctx, key, data)
+}
+
+func (s *KVStore) DeleteFlashcard(id string) error {
+	ctx := context.Background()
+
+	// Remove from index
+	if err := s.removeFromFlashcardIndex(id); err != nil {
+		// Log but continue
+	}
+
+	key := s.generateKey("flashcard", id)
+	return s.kv.Delete(ctx, key)
+}
+
+func (s *KVStore) ReviewFlashcard(id string, quality int) (*Flashcard, error) {
+	card, err := s.GetFlashcard(id)
+	if err != nil {
+		return nil, err
+	}
+	if card == nil {
+		return nil, fmt.Errorf("flashcard not found: %s", id)
+	}
+
+	now := time.Now()
+
+	// Capture previous values
+	prevInterval := card.Interval
+	prevEase := card.Ease
+	if prevEase == 0 {
+		prevEase = 2.5
+	}
+
+	// SM-2 algorithm
+	ease := prevEase
+	ease = ease + (0.1 - (float64(5-quality)*(0.08+float64(5-quality)*0.02)))
+	if ease < 1.3 {
+		ease = 1.3
+	}
+	if ease > 2.5 {
+		ease = 2.5
+	}
+
+	var interval int
+	if quality < 3 {
+		interval = 1
+	} else {
+		if prevInterval == 0 {
+			interval = 1
+		} else if prevInterval == 1 {
+			interval = 6
+		} else {
+			interval = int(float64(prevInterval) * ease)
+		}
+	}
+
+	card.Interval = interval
+	card.Ease = ease
+	card.DueAt = now.AddDate(0, 0, interval)
+	card.LastReview = now
+	card.UpdatedAt = now
+
+	// Save updated card
+	if err := s.UpdateFlashcard(card); err != nil {
+		return nil, err
+	}
+
+	// Record review
+	review := &FlashcardReview{
+		ID:            fmt.Sprintf("review:%d", time.Now().UnixNano()),
+		FlashcardID:   id,
+		Quality:       quality,
+		ReviewedAt:   now,
+		PrevInterval: prevInterval,
+		PrevEase:     prevEase,
+	}
+	// Store review (we need a review index)
+	if err := s.addReview(review); err != nil {
+		// Log but don't fail
+	}
+
+	return card, nil
+}
+
+func (s *KVStore) addReview(review *FlashcardReview) error {
+	ctx := context.Background()
+	key := s.generateKey("review", review.ID)
+	data, err := json.Marshal(review)
+	if err != nil {
+		return err
+	}
+	if err := s.kv.Set(ctx, key, data); err != nil {
+		return err
+	}
+
+	// Add to flashcard's review index
+	indexKey := s.generateKey("index", "flashcard:reviews:"+review.FlashcardID)
+	ids, err := s.getFlashcardReviewIndex(review.FlashcardID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	ids = append(ids, review.ID)
+	data, _ = json.Marshal(ids)
+	return s.kv.Set(ctx, indexKey, data)
+}
+
+func (s *KVStore) getFlashcardReviewIndex(flashcardID string) ([]string, error) {
+	ctx := context.Background()
+	indexKey := s.generateKey("index", "flashcard:reviews:"+flashcardID)
+	data, err := s.kv.Get(ctx, indexKey)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	if err := json.Unmarshal(data, &ids); err != nil {
+		return nil, fmt.Errorf("unmarshal review index: %w", err)
+	}
+	return ids, nil
+}
+
+func (s *KVStore) ListFlashcardReviews(flashcardID string) ([]*FlashcardReview, error) {
+	ctx := context.Background()
+
+	indexKey := s.generateKey("index", "flashcard:reviews:"+flashcardID)
+	idsData, err := s.kv.Get(ctx, indexKey)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+
+	var ids []string
+	if err == nil {
+		if err := json.Unmarshal(idsData, &ids); err != nil {
+			ids = []string{}
+		}
+	}
+
+	var reviews []*FlashcardReview
+	for _, id := range ids {
+		key := s.generateKey("review", id)
+		data, err := s.kv.Get(ctx, key)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		var r FlashcardReview
+		if err := json.Unmarshal(data, &r); err != nil {
+			continue
+		}
+		reviews = append(reviews, &r)
+	}
+
+	// Sort by reviewed_at descending
+	for i := 1; i < len(reviews); i++ {
+		j := i
+		for j > 0 && reviews[j-1].ReviewedAt.Before(reviews[j].ReviewedAt) {
+			reviews[j-1], reviews[j] = reviews[j], reviews[j-1]
+			j--
+		}
+	}
+
+	return reviews, nil
+}
+
+func (s *KVStore) GetDueFlashcards(now time.Time) ([]*Flashcard, error) {
+	// Reuse ListFlashcards with due filter
+	return s.ListFlashcards(&FlashcardListOptions{Due: true})
+}
+
+// Flashcard index maintenance
+
+func (s *KVStore) addToFlashcardIndex(cardID string) error {
+	ctx := context.Background()
+	indexKey := s.generateKey("index", "flashcards")
+	ids, err := s.getFlashcardIndex()
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	for _, id := range ids {
+		if id == cardID {
+			return nil
+		}
+	}
+	ids = append(ids, cardID)
+	data, _ := json.Marshal(ids)
+	return s.kv.Set(ctx, indexKey, data)
+}
+
+func (s *KVStore) removeFromFlashcardIndex(cardID string) error {
+	ctx := context.Background()
+	indexKey := s.generateKey("index", "flashcards")
+	ids, err := s.getFlashcardIndex()
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	newIDs := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != cardID {
+			newIDs = append(newIDs, id)
+		}
+	}
+	data, _ := json.Marshal(newIDs)
+	return s.kv.Set(ctx, indexKey, data)
+}
+
+func (s *KVStore) getFlashcardIndex() ([]string, error) {
+	ctx := context.Background()
+	indexKey := s.generateKey("index", "flashcards")
+	data, err := s.kv.Get(ctx, indexKey)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	if err := json.Unmarshal(data, &ids); err != nil {
+		return nil, fmt.Errorf("unmarshal flashcard index: %w", err)
+	}
+	return ids, nil
+}

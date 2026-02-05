@@ -3,6 +3,8 @@
 
 package library
 
+import "time"
+
 // LibraryStore is the interface for persisting and retrieving library data.
 // Implementations may use SQL, KV storage, or in-memory structures.
 type LibraryStore interface {
@@ -37,4 +39,14 @@ type LibraryStore interface {
 	StartSession(documentID string) (*ReadingSession, error)
 	EndSession(sessionID string, pagesRead int, notes string) error
 	ListSessions(documentID string) ([]*ReadingSession, error)
+
+	// Flashcard operations (Phase 2)
+	AddFlashcard(*Flashcard) error
+	GetFlashcard(id string) (*Flashcard, error)
+	ListFlashcards(opts *FlashcardListOptions) ([]*Flashcard, error)
+	UpdateFlashcard(*Flashcard) error
+	DeleteFlashcard(id string) error
+	ReviewFlashcard(id string, quality int) (*Flashcard, error) // quality 0-5, updates interval/ease
+	ListFlashcardReviews(flashcardID string) ([]*FlashcardReview, error)
+	GetDueFlashcards(now time.Time) ([]*Flashcard, error)
 }
