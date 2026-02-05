@@ -36,6 +36,7 @@ arc-library provides tools to:
 	root.AddCommand(newFlashcardCmd(cfg, store))
 	root.AddCommand(newExportCmd(cfg, store))
 	root.AddCommand(newAICmd(cfg, store))
+	root.AddCommand(newDuplicatesCmd(cfg, store))
 
 	return root
 }
