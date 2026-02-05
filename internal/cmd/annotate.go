@@ -16,8 +16,8 @@ func newAnnotateCmd(cfg *config.Config, store library.LibraryStore) *cobra.Comma
 	cmd := &cobra.Command{
 		Use:     "annotate",
 		Aliases: []string{"ann", "note"},
-		Short:   "Manage paper annotations",
-		Long:    `Add, list, and remove annotations on papers.`,
+		Short:   "Manage document annotations",
+		Long:    `Add, list, and remove annotations on documents.`,
 	}
 
 	cmd.AddCommand(newAnnotateAddCmd(store))
@@ -33,9 +33,9 @@ func newAnnotateAddCmd(store library.LibraryStore) *cobra.Command {
 	var color string
 
 	cmd := &cobra.Command{
-		Use:   "add <paper-id> <content>",
-		Short: "Add an annotation to a paper",
-		Long: `Add a note or highlight to a paper.
+		Use:   "add <document-id> <content>",
+		Short: "Add an annotation to a document",
+		Long: `Add a note or highlight to a document.
 
 Examples:
   arc-library annotate add 2304.00067 "Key insight about attention"
@@ -43,25 +43,25 @@ Examples:
   arc-library annotate add 2304.00067 "TODO: follow up" --type bookmark`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			paperID := args[0]
+			documentID := args[0]
 			content := args[1]
 
-			paper, err := store.GetPaper(paperID)
+			document, err := store.GetDocument(documentID)
 			if err != nil {
 				return err
 			}
-			if paper == nil {
-				papers, _ := store.ListPapers(&library.ListOptions{Search: paperID, Limit: 1})
-				if len(papers) > 0 {
-					paper = papers[0]
+			if document == nil {
+				documents, _ := store.ListDocuments(&library.ListOptions{Search: documentID, Limit: 1})
+				if len(documents) > 0 {
+					document = documents[0]
 				}
 			}
-			if paper == nil {
-				return fmt.Errorf("paper not found: %s", paperID)
+			if document == nil {
+				return fmt.Errorf("document not found: %s", documentID)
 			}
 
 			ann := &library.Annotation{
-				PaperID: paper.ID,
+				DocumentID: document.ID,
 				Type:    annType,
 				Content: content,
 				Page:    page,
@@ -72,7 +72,7 @@ Examples:
 				return fmt.Errorf("add annotation: %w", err)
 			}
 
-			fmt.Printf("Added %s to %s", annType, truncate(paper.Title, 40))
+			fmt.Printf("Added %s to %s", annType, truncate(document.Title, 40))
 			if page > 0 {
 				fmt.Printf(" (page %d)", page)
 			}
@@ -93,41 +93,41 @@ func newAnnotateListCmd(store library.LibraryStore) *cobra.Command {
 	var out output.OutputOptions
 
 	cmd := &cobra.Command{
-		Use:   "list <paper-id>",
-		Short: "List annotations for a paper",
+		Use:   "list <document-id>",
+		Short: "List annotations for a document",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := out.Resolve(); err != nil {
 				return err
 			}
 
-			paperID := args[0]
+			documentID := args[0]
 
-			paper, err := store.GetPaper(paperID)
+			document, err := store.GetDocument(documentID)
 			if err != nil {
 				return err
 			}
-			if paper == nil {
-				papers, _ := store.ListPapers(&library.ListOptions{Search: paperID, Limit: 1})
-				if len(papers) > 0 {
-					paper = papers[0]
+			if document == nil {
+				documents, _ := store.ListDocuments(&library.ListOptions{Search: documentID, Limit: 1})
+				if len(documents) > 0 {
+					document = documents[0]
 				}
 			}
-			if paper == nil {
-				return fmt.Errorf("paper not found: %s", paperID)
+			if document == nil {
+				return fmt.Errorf("document not found: %s", documentID)
 			}
 
-			annotations, err := store.GetAnnotations(paper.ID)
+			annotations, err := store.GetAnnotations(document.ID)
 			if err != nil {
 				return err
 			}
 
 			if len(annotations) == 0 {
-				fmt.Printf("No annotations for %s\n", truncate(paper.Title, 50))
+				fmt.Printf("No annotations for %s\n", truncate(document.Title, 50))
 				return nil
 			}
 
-			fmt.Printf("Annotations for: %s\n\n", truncate(paper.Title, 50))
+			fmt.Printf("Annotations for: %s\n\n", truncate(document.Title, 50))
 
 			if out.Is(output.OutputJSON) {
 				return output.JSON(annotations)

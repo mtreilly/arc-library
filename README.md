@@ -1,6 +1,20 @@
 # arc-library
 
-A CLI tool to organize, tag, and annotate your research paper library. Works with papers from any source (arXiv, local PDFs, etc.).
+A CLI tool to organize, tag, and annotate your research library. Works with documents of any type: research papers, books, articles, videos, notes, and more. Designed for personal knowledge management, research, and learning.
+
+## Features
+
+- **Multiple document types**: papers, books, articles, videos, notes, code repos
+- **Flexible import**: from directories (with meta.yaml), direct PDF import, DOI resolution
+- **Full-text search**: SQLite FTS5 for fast text search (SQL backend)
+- **PDF text extraction**: optional full-text indexing (requires `pdftotext`)
+- **Metadata enrichment**: auto-fill metadata from Crossref via DOI
+- **Tags & collections**: organize documents by topic or project
+- **Annotations**: highlights, notes, bookmarks with page/position
+- **Reading sessions**: track time spent reading, pages per session
+- **Statistics**: overview of your library usage
+- **Multiple storage backends**: SQL (default), KV (JSON), or memory (stateless)
+- **CLI-first, composable**: integrates with other arc tools
 
 ## Installation
 
@@ -16,128 +30,240 @@ cd arc-library
 go build -o arc-library .
 ```
 
-## Usage
+## Quick Start
 
-### Import Papers
+### Import Documents
 
-Import papers from your filesystem into the library database:
+#### From a meta directory (created by arc-arxiv)
 
 ```bash
-# Import all papers from a directory
-arc-library import ~/papers
-
-# Import with tags
-arc-library import ~/papers --tag ml --tag transformers
-
-# Import into a collection
-arc-library import ~/papers --collection "project-x"
+arc-library import ~/papers/2304.00067
+arc-library import ~/papers --tag ml --collection "thesis"
 ```
 
-Papers are expected to have a `meta.yaml` file (as created by [arc-arxiv](https://github.com/mtreilly/arc-arxiv)).
-
-### Tagging
+#### Import a PDF directly
 
 ```bash
-# Add tags to a paper
-arc-library tag add 2304.00067 ml transformers attention
-
-# Remove tags
-arc-library tag remove 2304.00067 attention
-
-# List all tags with counts
-arc-library tag list
+arc-library import paper.pdf --title "My Paper" --authors "Alice, Bob" --tag ml
 ```
 
-### Collections
-
-Group papers into named collections for projects:
+With full-text extraction and DOI resolution:
 
 ```bash
-# Create a collection
-arc-library collection create "thesis-chapter-3" --description "Papers for chapter 3"
-
-# List collections
-arc-library collection list
-
-# Add papers to a collection
-arc-library collection add "thesis-chapter-3" 2304.00067 2301.12345
-
-# Show papers in a collection
-arc-library collection show "thesis-chapter-3"
-
-# Remove papers from a collection
-arc-library collection remove "thesis-chapter-3" 2304.00067
-
-# Delete a collection
-arc-library collection delete "thesis-chapter-3" --force
+arc-library import paper.pdf --extract-text --doi 10.1234/5678 --resolve-doi
 ```
 
-### Listing and Searching
+You can also import all PDFs in a directory:
 
 ```bash
-# List all papers
-arc-library list
-
-# Filter by tag
-arc-library list --tag ml
-
-# Filter by source
-arc-library list --source arxiv
-
-# Search across titles, abstracts, and notes
-arc-library search "transformer attention"
-
-# Search with filters
-arc-library search "neural" --tag ml --limit 20
+arc-library import ~/downloads --extract-text --tag unread
 ```
 
-### Annotations
-
-Add notes, highlights, and bookmarks to papers:
+### Organize
 
 ```bash
-# Add a note
-arc-library annotate add 2304.00067 "Key insight about attention mechanisms"
+# Tag documents
+arc-library tag add <doc-id> ml nlp attention
+arc-library tag remove <doc-id> obsolete
 
-# Add with page number
-arc-library annotate add 2304.00067 "Important formula" --page 5
+# Create and manage collections
+arc-library collection create "project-x" --description "Papers for project X"
+arc-library collection add "project-x" <doc-id>
+arc-library collection show "project-x"
+```
 
-# Add a bookmark
-arc-library annotate add 2304.00067 "TODO: follow up on this" --type bookmark
+### Search & Discover
 
-# List annotations for a paper
-arc-library annotate list 2304.00067
+```bash
+# List documents
+arc-library list --tag ml --source arxiv
 
-# Delete an annotation
+# Full-text search (SQL backend)
+arc-library search "transformer attention" --limit 20
+
+# Find documents by metadata
+arc-library list --type book
+```
+
+### Annotate
+
+```bash
+# Add an annotation
+arc-library annotate add <doc-id> "Important insight" --page 12 --color "#ff0000"
+
+# List annotations for a document
+arc-library annotate list <doc-id>
+
+# Delete annotation
 arc-library annotate delete <annotation-id>
 ```
 
-## Data Storage
-
-arc-library supports multiple storage backends through the `ARC_LIBRARY_STORAGE` environment variable:
-
-- **`sql`** (default): Traditional relational storage using custom SQLite schema. Supports advanced queries and indexes. Recommended for large libraries.
-- **`kv`**: Key-value store using JSON documents in SQLite. Simpler schema, but list operations scan all papers (suitable for small libraries, <1000 papers).
-- **`memory`**: In-memory only, no persistence. Useful for ephemeral sessions or testing.
-
-All backends use the same default SQLite file (`~/.local/share/arc/arc.db`) unless configured otherwise. The actual paper files (PDFs, meta.yaml) remain on the filesystem - arc-library only indexes and enriches them.
-
-### Examples
+### Track Reading
 
 ```bash
-# Use KV store (JSON documents)
-ARC_LIBRARY_STORAGE=kv arc-library list
+# Start a reading session
+arc-library session start <doc-id>
 
-# Use in-memory store (stateless)
-ARC_LIBRARY_STORAGE=memory arc-library list
+# End the session (record pages read, notes)
+arc-library session end <session-id> --pages 10 --notes "Read intro"
 
-# Default (SQL)
-arc-library list
+# List sessions
+arc-library session list --document <doc-id>
+arc-library session list --limit 10
 ```
+
+### Statistics
+
+```bash
+arc-library stats
+```
+
+Shows document counts by type, tag cloud size, collections, annotations, reading sessions, pages read.
+
+## Document Types
+
+- `paper`: arXiv, conference, journal articles (default)
+- `book`: textbooks, monographs
+- `article`: web articles, blog posts
+- `video`: lecture videos, tutorials
+- `note`: user-created notes (Markdown, text)
+- `repo`: git repositories
+- `other`: anything else
+
+Specify with `--type` flag when importing.
+
+## PDF Import Options
+
+- `--extract-text`: extract full text using `pdftotext` (poppler-utils). Enables full-text search.
+- `--doi <doi>`: assign a DOI to the document (e.g., `10.1234/5678`)
+- `--resolve-doi`: fetch metadata from Crossref (requires `--doi`)
+- `--title`, `--authors`, `--abstract`: manual metadata (otherwise filename used)
+
+## Storage Backends
+
+Control with `ARC_LIBRARY_STORAGE` environment variable:
+
+- `sql` (default): Relational SQLite schema with FTS5. Best performance for large libraries (>10k docs).
+- `kv`: JSON documents in a key-value store. Simpler, portable, good for small libraries (<1k docs).
+- `memory`: In-memory only. Useful for quick queries or when persistence not needed.
+
+The default SQLite file is at `~/.local/share/arc/arc.db`.
+
+## Data Model
+
+- **Documents**: core entity, with flexible metadata (type, source, source_id, title, authors, abstract, full_text, tags, notes, rating, status, meta)
+- **Collections**: named groups of documents (many-to-many)
+- **Annotations**: per-document highlights/notes with position and color
+- **ReadingSessions**: start/end timestamps, pages read, notes
+- **Tags**: simple string tags, counted across library
+
+## Example Workflows
+
+### Literature review
+
+```bash
+# Import all papers from a directory (with meta.yaml)
+arc-library import ~/arxiv-papers --tag literature-review
+
+# Search for relevant papers
+arc-library search "neural networks" --tag literature-review
+
+# Create a collection for the review
+arc-library collection create "lit-req-2025"
+arc-library collection add "lit-req-2025" <paper-id>
+
+# Add notes as you read
+arc-library annotate add <paper-id> "Key contribution: ..." --page 3
+```
+
+### Student learning
+
+```bash
+# Import lecture PDFs
+arc-library import ~/lectures --extract-text --tag course
+
+# Track reading progress
+arc-library session start <lecture-id>
+# ... read ...
+arc-library session end <session-id> --pages 5 --notes "Understood main concepts"
+
+# Generate flashcards (future)
+# arc-library flashcard generate --from-annotations
+
+# View stats to see progress
+arc-library stats
+```
+
+### Research with books
+
+```bash
+# Import a book (PDF or epub)
+arc-library import book.pdf --type book --title "Deep Learning" --authors "Goodfellow et al." --tag reference
+
+# Create a project collection
+arc-library collection create "thesis-chapter-2"
+
+# Add relevant chapters or notes as you read
+```
+
+## Advanced Usage
+
+### Full-text search
+
+After importing PDFs with `--extract-text`, use the `search` command to find content anywhere in the full text:
+
+```bash
+arc-library search "backpropagation" --type paper
+```
+
+This searches titles, abstracts, notes, **and** the extracted full text.
+
+### Crossref DOI resolution
+
+If you have a DOI, you can auto-populate metadata:
+
+```bash
+arc-library import paper.pdf --doi 10.1234/5678 --resolve-doi
+```
+
+This fetches title, authors, abstract, and publication year.
+
+### Reading goals
+
+Use `arc-library stats` to see how much you've been reading:
+
+```
+Documents:     142
+By type:       paper: 120, book: 15, article: 7
+Tags:          23 unique
+Collections:   5
+Annotations:   87
+Reading sessions: 42
+Pages read:    1234
+```
+
+### Back up your library
+
+The database file is a single SQLite file. Copy it to back up:
+
+```bash
+cp ~/.local/share/arc/arc.db ~/backups/arc-$(date +%F).db
+```
+
+Your actual document files remain on the filesystem; the library only stores metadata and indexes.
 
 ## Related Tools
 
-- [arc-arxiv](https://github.com/mtreilly/arc-arxiv) - Fetch papers from arXiv with rich metadata
+- [arc-arxiv](https://github.com/mtreilly/arc-arxiv) - Fetch papers from arXiv with meta.yaml
+- arc-ai (upcoming) - AI-powered summarization and Q&A
+
+## Design Principles
+
+- **Stateless modules**: Storage is optional; can run entirely in-memory
+- **CLI-first**: All features accessible from the command line
+- **Composable**: Works with standard Unix tools (grep, find, etc.)
+- **Offline-first**: No mandatory cloud APIs; your data stays on your machine
+- **Minimal dependencies**: Uses system tools (pdftotext) optionally
 
 ## License
 
