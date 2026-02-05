@@ -254,6 +254,27 @@ arc-library flashcard delete <card-id>
 
 The flashcard system uses the SM-2 algorithm (like Anki) to schedule reviews. Cards automatically update their due date based on your rating quality.
 
+### AI Analysis
+
+Leverage the arc-ai daemon with your Pi-agent to get summaries and answers about your documents:
+
+```bash
+# Generate a summary of a document
+arc-library ai summary <doc-id>
+
+# Optionally store the summary in document metadata
+arc-library ai summary <doc-id> --store
+
+# Ask a question about a document
+arc-library ai qna <doc-id> "What is the main contribution of this paper?"
+
+# Combine with full-text extraction
+arc-library import paper.pdf --extract-text
+arc-library ai summary <doc-id>
+```
+
+Make sure `arc-ai` is running in daemon mode: `arc-ai start`
+
 ### Reading goals
 
 Use `arc-library stats` to see how much you've been reading:
