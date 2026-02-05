@@ -216,7 +216,17 @@ After importing PDFs with `--extract-text`, use the `search` command to find con
 arc-library search "backpropagation" --type paper
 ```
 
-This searches titles, abstracts, notes, **and** the extracted full text.
+This uses SQLite FTS5 for fast, relevance-ranked search across titles, abstracts, notes, and full text.
+
+### Duplicate detection
+
+Find potential duplicates using title similarity and source IDs:
+
+```bash
+arc-library duplicates --threshold 0.75
+```
+
+Pairs with matching DOIs/arXiv IDs are flagged automatically. Tune the threshold to control strictness.
 
 ### Crossref DOI resolution
 
@@ -289,6 +299,29 @@ Reading sessions: 42
 Pages read:    1234
 ```
 
+### Export formats
+
+Export your library data to interchange formats:
+
+```bash
+# BibTeX for LaTeX/BibLaTeX
+arc-library export --format bibtex > library.bib
+
+# Markdown (Obsidian, note apps)
+arc-library export --format markdown > library.md
+
+# RIS for Zotero, EndNote, Mendeley
+arc-library export --format ris > library.ris
+
+# JSON for custom processing
+arc-library export --format json > library.json
+
+# Filter exports by tag, collection, source, type
+arc-library export --format bibtex --tag "to-read" > toread.bib
+```
+
+The Markdown export includes annotations and can be imported into Obsidian or other PKM tools.
+
 ### Back up your library
 
 The database file is a single SQLite file. Copy it to back up:
@@ -302,7 +335,8 @@ Your actual document files remain on the filesystem; the library only stores met
 ## Related Tools
 
 - [arc-arxiv](https://github.com/mtreilly/arc-arxiv) - Fetch papers from arXiv with meta.yaml
-- arc-ai (upcoming) - AI-powered summarization and Q&A
+- arc-ai - AI-powered summarization and Q&A via the Pi coding agent
+- arc-db - Database tools for arc libraries
 
 ## Design Principles
 
