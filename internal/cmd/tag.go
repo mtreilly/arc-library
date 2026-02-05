@@ -16,8 +16,8 @@ import (
 func newTagCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tag",
-		Short: "Manage paper tags",
-		Long:  `Add, remove, and list tags on papers.`,
+		Short: "Manage document tags",
+		Long:  `Add, remove, and list tags on documents.`,
 	}
 
 	cmd.AddCommand(newTagAddCmd(store))
@@ -29,34 +29,34 @@ func newTagCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 
 func newTagAddCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
-		Use:   "add <paper-id> <tag> [tag...]",
-		Short: "Add tags to a paper",
+		Use:   "add <document-id> <tag> [tag...]",
+		Short: "Add tags to a document",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			paperID := args[0]
+			documentID := args[0]
 			tags := args[1:]
 
-			// Try to find paper by ID or source ID
-			paper, err := store.GetPaper(paperID)
+			// Try to find document by ID or source ID
+			document, err := store.GetDocument(documentID)
 			if err != nil {
 				return err
 			}
-			if paper == nil {
+			if document == nil {
 				// Try by source ID
-				papers, _ := store.ListPapers(&library.ListOptions{Search: paperID, Limit: 1})
-				if len(papers) > 0 {
-					paper = papers[0]
+				documents, _ := store.ListDocuments(&library.ListOptions{Search: documentID, Limit: 1})
+				if len(documents) > 0 {
+					document = documents[0]
 				}
 			}
-			if paper == nil {
-				return fmt.Errorf("paper not found: %s", paperID)
+			if document == nil {
+				return fmt.Errorf("document not found: %s", documentID)
 			}
 
 			for _, tag := range tags {
-				if err := store.AddTag(paper.ID, tag); err != nil {
+				if err := store.AddTag(document.ID, tag); err != nil {
 					return fmt.Errorf("add tag %q: %w", tag, err)
 				}
-				fmt.Printf("Added tag %q to %s\n", tag, truncate(paper.Title, 40))
+				fmt.Printf("Added tag %q to %s\n", tag, truncate(document.Title, 40))
 			}
 
 			return nil
@@ -66,32 +66,32 @@ func newTagAddCmd(store library.LibraryStore) *cobra.Command {
 
 func newTagRemoveCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove <paper-id> <tag> [tag...]",
-		Short: "Remove tags from a paper",
+		Use:   "remove <document-id> <tag> [tag...]",
+		Short: "Remove tags from a document",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			paperID := args[0]
+			documentID := args[0]
 			tags := args[1:]
 
-			paper, err := store.GetPaper(paperID)
+			document, err := store.GetDocument(documentID)
 			if err != nil {
 				return err
 			}
-			if paper == nil {
-				papers, _ := store.ListPapers(&library.ListOptions{Search: paperID, Limit: 1})
-				if len(papers) > 0 {
-					paper = papers[0]
+			if document == nil {
+				documents, _ := store.ListDocuments(&library.ListOptions{Search: documentID, Limit: 1})
+				if len(documents) > 0 {
+					document = documents[0]
 				}
 			}
-			if paper == nil {
-				return fmt.Errorf("paper not found: %s", paperID)
+			if document == nil {
+				return fmt.Errorf("document not found: %s", documentID)
 			}
 
 			for _, tag := range tags {
-				if err := store.RemoveTag(paper.ID, tag); err != nil {
+				if err := store.RemoveTag(document.ID, tag); err != nil {
 					return fmt.Errorf("remove tag %q: %w", tag, err)
 				}
-				fmt.Printf("Removed tag %q from %s\n", tag, truncate(paper.Title, 40))
+				fmt.Printf("Removed tag %q from %s\n", tag, truncate(document.Title, 40))
 			}
 
 			return nil
@@ -137,7 +137,7 @@ func newTagListCmd(store library.LibraryStore) *cobra.Command {
 				return sorted[i].Count > sorted[j].Count
 			})
 
-			table := output.NewTable("Tag", "Papers")
+			table := output.NewTable("Tag", "Documents")
 			for _, tc := range sorted {
 				table.AddRow(tc.Tag, fmt.Sprintf("%d", tc.Count))
 			}

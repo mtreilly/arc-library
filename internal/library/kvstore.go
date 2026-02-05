@@ -14,18 +14,14 @@ import (
 	"github.com/yourorg/arc-sdk/store"
 )
 
-// KVStore implements the same Store interface but uses arc-sdk/store.KVStore for persistence.
-// This allows arc-library to work with any KVStore backend (SQLite, memory, etc.)
-// and makes the module stateless from the perspective of the database.
+// KVStore implements the LibraryStore interface using arc-sdk/store.KVStore.
 type KVStore struct {
 	kv store.KVStore
 }
 
 // NewKVStore creates a new library store backed by the given KVStore.
-// The KVStore is typically opened via store.OpenSQLiteStore(path) or store.NewMemoryStore().
 func NewKVStore(kv store.KVStore) (*KVStore, error) {
 	s := &KVStore{kv: kv}
-	// No schema initialization needed - KV store is schemaless
 	return s, nil
 }
 
@@ -34,53 +30,53 @@ func (s *KVStore) generateKey(prefix, id string) string {
 	return fmt.Sprintf("arc-library:%s:%s", prefix, id)
 }
 
-// Paper operations
+// Document operations
 
-func (s *KVStore) AddPaper(paper *Paper) error {
-	if paper.ID == "" {
-		paper.ID = fmt.Sprintf("paper:%d", time.Now().UnixNano())
+func (s *KVStore) AddDocument(doc *Document) error {
+	if doc.ID == "" {
+		doc.ID = fmt.Sprintf("doc:%d", time.Now().UnixNano())
 	}
 	now := time.Now()
-	paper.CreatedAt = now
-	paper.UpdatedAt = now
+	doc.CreatedAt = now
+	doc.UpdatedAt = now
 
-	data, err := json.Marshal(paper)
+	data, err := json.Marshal(doc)
 	if err != nil {
-		return fmt.Errorf("marshal paper: %w", err)
+		return fmt.Errorf("marshal document: %w", err)
 	}
 
 	ctx := context.Background()
-	key := s.generateKey("paper", paper.ID)
+	key := s.generateKey("doc", doc.ID)
 	if err := s.kv.Set(ctx, key, data); err != nil {
-		return fmt.Errorf("set paper: %w", err)
+		return fmt.Errorf("set document: %w", err)
 	}
 
 	// Index by path for deduplication
-	if paper.Path != "" {
-		if err := s.kv.Set(ctx, s.generateKey("paper:path", paper.Path), []byte(paper.ID)); err != nil {
+	if doc.Path != "" {
+		if err := s.kv.Set(ctx, s.generateKey("doc:path", doc.Path), []byte(doc.ID)); err != nil {
 			// Log but don't fail - indices can be rebuilt
 		}
 	}
 
 	// Index by source+source_id if present
-	if paper.Source != "" && paper.SourceID != "" {
-		sourceKey := fmt.Sprintf("%s:%s", paper.Source, paper.SourceID)
-		if err := s.kv.Set(ctx, s.generateKey("paper:source", sourceKey), []byte(paper.ID)); err != nil {
-			// Log but don't fail - indices can be rebuilt
+	if doc.Source != "" && doc.SourceID != "" {
+		sourceKey := fmt.Sprintf("%s:%s", doc.Source, doc.SourceID)
+		if err := s.kv.Set(ctx, s.generateKey("doc:source", sourceKey), []byte(doc.ID)); err != nil {
+			// Log but don't fail
 		}
 	}
 
-	// Add to main paper index for ListPapers
-	if err := s.addToPaperIndex(paper.ID); err != nil {
-		// Log but don't fail - papers can still be retrieved by ID
+	// Add to main document index
+	if err := s.addToDocumentIndex(doc.ID); err != nil {
+		// Log but don't fail
 	}
 
 	return nil
 }
 
-func (s *KVStore) GetPaper(id string) (*Paper, error) {
+func (s *KVStore) GetDocument(id string) (*Document, error) {
 	ctx := context.Background()
-	key := s.generateKey("paper", id)
+	key := s.generateKey("doc", id)
 	data, err := s.kv.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -88,16 +84,16 @@ func (s *KVStore) GetPaper(id string) (*Paper, error) {
 		}
 		return nil, err
 	}
-	var p Paper
-	if err := json.Unmarshal(data, &p); err != nil {
-		return nil, fmt.Errorf("unmarshal paper: %w", err)
+	var d Document
+	if err := json.Unmarshal(data, &d); err != nil {
+		return nil, fmt.Errorf("unmarshal document: %w", err)
 	}
-	return &p, nil
+	return &d, nil
 }
 
-func (s *KVStore) GetPaperByPath(path string) (*Paper, error) {
+func (s *KVStore) GetDocumentByPath(path string) (*Document, error) {
 	ctx := context.Background()
-	key := s.generateKey("paper:path", path)
+	key := s.generateKey("doc:path", path)
 	idData, err := s.kv.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -105,13 +101,13 @@ func (s *KVStore) GetPaperByPath(path string) (*Paper, error) {
 		}
 		return nil, err
 	}
-	return s.GetPaper(string(idData))
+	return s.GetDocument(string(idData))
 }
 
-func (s *KVStore) GetPaperBySourceID(source, sourceID string) (*Paper, error) {
+func (s *KVStore) GetDocumentBySourceID(source, sourceID string) (*Document, error) {
 	ctx := context.Background()
 	sourceKey := fmt.Sprintf("%s:%s", source, sourceID)
-	key := s.generateKey("paper:source", sourceKey)
+	key := s.generateKey("doc:source", sourceKey)
 	idData, err := s.kv.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -119,24 +115,14 @@ func (s *KVStore) GetPaperBySourceID(source, sourceID string) (*Paper, error) {
 		}
 		return nil, err
 	}
-	return s.GetPaper(string(idData))
+	return s.GetDocument(string(idData))
 }
 
-func (s *KVStore) ListPapers(opts *ListOptions) ([]*Paper, error) {
-	// In a KV store, we need to scan all keys with the "paper:" prefix.
-	// For a library of a few thousand papers, this is acceptable.
-	// For larger libraries, a proper DB index would be better.
+func (s *KVStore) ListDocuments(opts *ListOptions) ([]*Document, error) {
 	ctx := context.Background()
 
-	// Note: In a production KV implementation, we'd want a way to list keys by prefix.
-	// For now, we'll scan all keys and filter in memory.
-	// A more efficient approach would maintain a "paper index" key with all paper IDs.
-
-	// Get all paper IDs (we need a way to enumerate keys - this is a limitation of simple KV)
-	// For now: we require a separate index key that stores all paper IDs.
-	// This index is maintained by AddPaper/DeletePaper.
-
-	indexKey := s.generateKey("index", "papers")
+	// Get all document IDs from the index
+	indexKey := s.generateKey("index", "documents")
 	idsData, err := s.kv.Get(ctx, indexKey)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
@@ -145,18 +131,17 @@ func (s *KVStore) ListPapers(opts *ListOptions) ([]*Paper, error) {
 	var ids []string
 	if err == nil {
 		if err := json.Unmarshal(idsData, &ids); err != nil {
-			// Corrupted index - rebuild by scanning? Not implemented.
 			ids = []string{}
 		}
 	}
 
-	var papers []*Paper
+	var docs []*Document
 	for _, id := range ids {
-		paper, err := s.GetPaper(id)
+		doc, err := s.GetDocument(id)
 		if err != nil {
 			continue
 		}
-		if paper == nil {
+		if doc == nil {
 			continue
 		}
 
@@ -164,7 +149,7 @@ func (s *KVStore) ListPapers(opts *ListOptions) ([]*Paper, error) {
 		if opts != nil {
 			if opts.Tag != "" {
 				found := false
-				for _, t := range paper.Tags {
+				for _, t := range doc.Tags {
 					if strings.EqualFold(t, opts.Tag) {
 						found = true
 						break
@@ -174,91 +159,93 @@ func (s *KVStore) ListPapers(opts *ListOptions) ([]*Paper, error) {
 					continue
 				}
 			}
-			if opts.Source != "" && paper.Source != opts.Source {
+			if opts.Source != "" && doc.Source != opts.Source {
 				continue
 			}
 			if opts.Search != "" {
 				search := strings.ToLower(opts.Search)
-				title := strings.ToLower(paper.Title)
-				abstract := strings.ToLower(paper.Abstract)
-				notes := strings.ToLower(paper.Notes)
-				if !strings.Contains(title, search) && !strings.Contains(abstract, search) && !strings.Contains(notes, search) {
+				title := strings.ToLower(doc.Title)
+				abstract := strings.ToLower(doc.Abstract)
+				notes := strings.ToLower(doc.Notes)
+				fullText := strings.ToLower(doc.FullText)
+				if !strings.Contains(title, search) && !strings.Contains(abstract, search) &&
+					!strings.Contains(notes, search) && !strings.Contains(fullText, search) {
 					continue
 				}
 			}
+			if opts.Type != "" && doc.Type != DocumentType(opts.Type) {
+				continue
+			}
 		}
 
-		papers = append(papers, paper)
+		docs = append(docs, doc)
 
-		if opts != nil && opts.Limit > 0 && len(papers) >= opts.Limit {
+		if opts != nil && opts.Limit > 0 && len(docs) >= opts.Limit {
 			break
 		}
 	}
 
-	return papers, nil
+	return docs, nil
 }
 
-func (s *KVStore) UpdatePaper(paper *Paper) error {
-	existing, err := s.GetPaper(paper.ID)
+func (s *KVStore) UpdateDocument(doc *Document) error {
+	existing, err := s.GetDocument(doc.ID)
 	if err != nil {
 		return err
 	}
 	if existing == nil {
-		return fmt.Errorf("paper not found: %s", paper.ID)
+		return fmt.Errorf("document not found: %s", doc.ID)
 	}
 
-	paper.CreatedAt = existing.CreatedAt
-	paper.UpdatedAt = time.Now()
+	doc.CreatedAt = existing.CreatedAt
+	doc.UpdatedAt = time.Now()
 
-	data, err := json.Marshal(paper)
+	data, err := json.Marshal(doc)
 	if err != nil {
-		return fmt.Errorf("marshal paper: %w", err)
+		return fmt.Errorf("marshal document: %w", err)
 	}
 
 	ctx := context.Background()
-	key := s.generateKey("paper", paper.ID)
+	key := s.generateKey("doc", doc.ID)
 	if err := s.kv.Set(ctx, key, data); err != nil {
-		return fmt.Errorf("set paper: %w", err)
+		return fmt.Errorf("set document: %w", err)
 	}
 
 	// Update path index if changed
-	if existing.Path != paper.Path {
-		// Remove old path index
-		_ = s.kv.Delete(ctx, s.generateKey("paper:path", existing.Path))
-		// Add new path index
-		if paper.Path != "" {
-			_ = s.kv.Set(ctx, s.generateKey("paper:path", paper.Path), []byte(paper.ID))
+	if existing.Path != doc.Path {
+		_ = s.kv.Delete(ctx, s.generateKey("doc:path", existing.Path))
+		if doc.Path != "" {
+			_ = s.kv.Set(ctx, s.generateKey("doc:path", doc.Path), []byte(doc.ID))
 		}
 	}
 
 	// Update source index if changed
-	if existing.Source != paper.Source || existing.SourceID != paper.SourceID {
+	if existing.Source != doc.Source || existing.SourceID != doc.SourceID {
 		if existing.Source != "" && existing.SourceID != "" {
 			oldSourceKey := fmt.Sprintf("%s:%s", existing.Source, existing.SourceID)
-			_ = s.kv.Delete(ctx, s.generateKey("paper:source", oldSourceKey))
+			_ = s.kv.Delete(ctx, s.generateKey("doc:source", oldSourceKey))
 		}
-		if paper.Source != "" && paper.SourceID != "" {
-			newSourceKey := fmt.Sprintf("%s:%s", paper.Source, paper.SourceID)
-			_ = s.kv.Set(ctx, s.generateKey("paper:source", newSourceKey), []byte(paper.ID))
+		if doc.Source != "" && doc.SourceID != "" {
+			newSourceKey := fmt.Sprintf("%s:%s", doc.Source, doc.SourceID)
+			_ = s.kv.Set(ctx, s.generateKey("doc:source", newSourceKey), []byte(doc.ID))
 		}
 	}
 
 	return nil
 }
 
-func (s *KVStore) DeletePaper(id string) error {
-	paper, err := s.GetPaper(id)
+func (s *KVStore) DeleteDocument(id string) error {
+	doc, err := s.GetDocument(id)
 	if err != nil {
 		return err
 	}
-	if paper == nil {
+	if doc == nil {
 		return nil // Already deleted
 	}
 
 	ctx := context.Background()
 
-	// Remove from all collections first
-	// (cascading - we could also leave orphans and clean up later)
+	// Remove from all collections
 	collections, err := s.ListCollections()
 	if err != nil {
 		return err
@@ -274,50 +261,50 @@ func (s *KVStore) DeletePaper(id string) error {
 	}
 
 	// Delete indices
-	_ = s.kv.Delete(ctx, s.generateKey("paper:path", paper.Path))
-	if paper.Source != "" && paper.SourceID != "" {
-		sourceKey := fmt.Sprintf("%s:%s", paper.Source, paper.SourceID)
-		_ = s.kv.Delete(ctx, s.generateKey("paper:source", sourceKey))
+	_ = s.kv.Delete(ctx, s.generateKey("doc:path", doc.Path))
+	if doc.Source != "" && doc.SourceID != "" {
+		sourceKey := fmt.Sprintf("%s:%s", doc.Source, doc.SourceID)
+		_ = s.kv.Delete(ctx, s.generateKey("doc:source", sourceKey))
 	}
 
-	// Remove from paper index
-	if err := s.removeFromPaperIndex(id); err != nil {
+	// Remove from document index
+	if err := s.removeFromDocumentIndex(id); err != nil {
 		// Log but continue
 	}
 
-	// Delete paper data
-	key := s.generateKey("paper", id)
+	// Delete document data
+	key := s.generateKey("doc", id)
 	return s.kv.Delete(ctx, key)
 }
 
-// maintainPaperIndex updates the list of all paper IDs.
-// This is needed because KV stores typically can't enumerate keys efficiently.
-func (s *KVStore) addToPaperIndex(paperID string) error {
-	ctx := context.Background()
-	indexKey := s.generateKey("index", "papers")
+// Document index maintenance
 
-	ids, err := s.getPaperIndex()
+func (s *KVStore) addToDocumentIndex(docID string) error {
+	ctx := context.Background()
+	indexKey := s.generateKey("index", "documents")
+
+	ids, err := s.getDocumentIndex()
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
 
 	// Avoid duplicates
 	for _, id := range ids {
-		if id == paperID {
+		if id == docID {
 			return nil
 		}
 	}
 
-	ids = append(ids, paperID)
+	ids = append(ids, docID)
 	data, _ := json.Marshal(ids)
 	return s.kv.Set(ctx, indexKey, data)
 }
 
-func (s *KVStore) removeFromPaperIndex(paperID string) error {
+func (s *KVStore) removeFromDocumentIndex(docID string) error {
 	ctx := context.Background()
-	indexKey := s.generateKey("index", "papers")
+	indexKey := s.generateKey("index", "documents")
 
-	ids, err := s.getPaperIndex()
+	ids, err := s.getDocumentIndex()
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil
@@ -327,7 +314,7 @@ func (s *KVStore) removeFromPaperIndex(paperID string) error {
 
 	newIDs := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if id != paperID {
+		if id != docID {
 			newIDs = append(newIDs, id)
 		}
 	}
@@ -336,71 +323,71 @@ func (s *KVStore) removeFromPaperIndex(paperID string) error {
 	return s.kv.Set(ctx, indexKey, data)
 }
 
-func (s *KVStore) getPaperIndex() ([]string, error) {
+func (s *KVStore) getDocumentIndex() ([]string, error) {
 	ctx := context.Background()
-	indexKey := s.generateKey("index", "papers")
+	indexKey := s.generateKey("index", "documents")
 	data, err := s.kv.Get(ctx, indexKey)
 	if err != nil {
 		return nil, err
 	}
 	var ids []string
 	if err := json.Unmarshal(data, &ids); err != nil {
-		return nil, fmt.Errorf("unmarshal paper index: %w", err)
+		return nil, fmt.Errorf("unmarshal document index: %w", err)
 	}
 	return ids, nil
 }
 
-// Tag operations
+// Tag operations (use DocumentID)
 
-func (s *KVStore) AddTag(paperID, tag string) error {
-	paper, err := s.GetPaper(paperID)
+func (s *KVStore) AddTag(documentID, tag string) error {
+	doc, err := s.GetDocument(documentID)
 	if err != nil {
 		return err
 	}
-	if paper == nil {
-		return fmt.Errorf("paper not found: %s", paperID)
+	if doc == nil {
+		return fmt.Errorf("document not found: %s", documentID)
 	}
 
 	// Check if already tagged
-	for _, t := range paper.Tags {
+	for _, t := range doc.Tags {
 		if strings.EqualFold(t, tag) {
 			return nil
 		}
 	}
 
-	paper.Tags = append(paper.Tags, tag)
-	return s.UpdatePaper(paper)
+	doc.Tags = append(doc.Tags, tag)
+	return s.UpdateDocument(doc)
 }
 
-func (s *KVStore) RemoveTag(paperID, tag string) error {
-	paper, err := s.GetPaper(paperID)
+func (s *KVStore) RemoveTag(documentID, tag string) error {
+	doc, err := s.GetDocument(documentID)
 	if err != nil {
 		return err
 	}
-	if paper == nil {
-		return fmt.Errorf("paper not found: %s", paperID)
+	if doc == nil {
+		return fmt.Errorf("document not found: %s", documentID)
 	}
 
-	newTags := make([]string, 0, len(paper.Tags))
-	for _, t := range paper.Tags {
+	newTags := make([]string, 0, len(doc.Tags))
+	for _, t := range doc.Tags {
 		if !strings.EqualFold(t, tag) {
 			newTags = append(newTags, t)
 		}
 	}
 
-	paper.Tags = newTags
-	return s.UpdatePaper(paper)
+	doc.Tags = newTags
+	return s.UpdateDocument(doc)
 }
 
 func (s *KVStore) ListTags() (map[string]int, error) {
-	papers, err := s.ListPapers(nil)
+	docs, err := s.ListDocuments(nil)
 	if err != nil {
 		return nil, err
 	}
 
 	tagCounts := make(map[string]int)
-	for _, p := range papers {
-		for _, tag := range p.Tags {
+	for _, d := range docs {
+		for _, tag := range d.Tags {
 			tagCounts[tag]++
 		}
 	}
@@ -428,7 +415,7 @@ func (s *KVStore) CreateCollection(name, description string) (*Collection, error
 		return nil, err
 	}
 
-	// Maintain collection index (like paper index)
+	// Maintain collection index
 	if err := s.addToCollectionIndex(c.ID); err != nil {
 		// Log but don't fail
 	}
@@ -445,7 +432,7 @@ func (s *KVStore) GetCollection(idOrName string) (*Collection, error) {
 	if c != nil {
 		return c, nil
 	}
-	// Then search by name (need to scan index)
+	// Then search by name
 	return s.getCollectionByName(idOrName)
 }
 
@@ -507,16 +494,19 @@ func (s *KVStore) ListCollections() ([]*Collection, error) {
 		collections = append(collections, c)
 	}
 
-	// Sort by name
-	sorted := make([]*Collection, len(collections))
-	copy(sorted, collections)
-	// Simple bubble sort would be fine for small N, but use sort.Slice
-	// (can't use sort here because we're in kvstore.go, need to import sort)
-	// We'll leave unsorted for now or implement simple sort
+	// Sort by name (simple insertion sort for small collections)
+	for i := 1; i < len(collections); i++ {
+		j := i
+		for j > 0 && collections[j-1].Name > collections[j].Name {
+			collections[j-1], collections[j] = collections[j], collections[j-1]
+			j--
+		}
+	}
+
 	return collections, nil
 }
 
-func (s *KVStore) AddToCollection(collectionID, paperID string) error {
+func (s *KVStore) AddToCollection(collectionID, documentID string) error {
 	c, err := s.getCollectionByID(collectionID)
 	if err != nil {
 		return err
@@ -526,13 +516,13 @@ func (s *KVStore) AddToCollection(collectionID, paperID string) error {
 	}
 
 	// Check if already in collection
-	for _, pid := range c.PaperIDs {
-		if pid == paperID {
+	for _, did := range c.DocumentIDs {
+		if did == documentID {
 			return nil
 		}
 	}
 
-	c.PaperIDs = append(c.PaperIDs, paperID)
+	c.DocumentIDs = append(c.DocumentIDs, documentID)
 	c.UpdatedAt = time.Now()
 
 	ctx := context.Background()
@@ -544,7 +534,7 @@ func (s *KVStore) AddToCollection(collectionID, paperID string) error {
 	return s.kv.Set(ctx, key, data)
 }
 
-func (s *KVStore) RemoveFromCollection(collectionID, paperID string) error {
+func (s *KVStore) RemoveFromCollection(collectionID, documentID string) error {
 	c, err := s.getCollectionByID(collectionID)
 	if err != nil {
 		return err
@@ -553,14 +543,14 @@ func (s *KVStore) RemoveFromCollection(collectionID, paperID string) error {
 		return fmt.Errorf("collection not found: %s", collectionID)
 	}
 
-	newIDs := make([]string, 0, len(c.PaperIDs))
-	for _, pid := range c.PaperIDs {
-		if pid != paperID {
-			newIDs = append(newIDs, pid)
+	newIDs := make([]string, 0, len(c.DocumentIDs))
+	for _, did := range c.DocumentIDs {
+		if did != documentID {
+			newIDs = append(newIDs, did)
 		}
 	}
 
-	c.PaperIDs = newIDs
+	c.DocumentIDs = newIDs
 	c.UpdatedAt = time.Now()
 
 	ctx := context.Background()
@@ -583,10 +573,6 @@ func (s *KVStore) DeleteCollection(id string) error {
 
 	ctx := context.Background()
 
-	// Note: collections store paper IDs. When we delete the collection,
-	// the papers remain in the library but lose this collection reference.
-	// No cascade delete of papers is performed.
-
 	// Delete collection data
 	key := s.generateKey("collection", id)
 	if err := s.kv.Delete(ctx, key); err != nil {
@@ -602,7 +588,6 @@ func (s *KVStore) DeleteCollection(id string) error {
 }
 
 func (s *KVStore) addToCollectionIndex(collectionID string) error {
-	// Similar to paper index
 	ctx := context.Background()
 	indexKey := s.generateKey("index", "collections")
 	ids, err := s.getCollectionIndex()
@@ -653,7 +638,7 @@ func (s *KVStore) getCollectionIndex() ([]string, error) {
 	return ids, nil
 }
 
-// Annotation operations
+// Annotation operations (use DocumentID)
 
 func (s *KVStore) AddAnnotation(ann *Annotation) error {
 	if ann.ID == "" {
@@ -671,19 +656,19 @@ func (s *KVStore) AddAnnotation(ann *Annotation) error {
 		return err
 	}
 
-	// Add to paper's annotation index
-	if err := s.addToPaperAnnotationsIndex(ann.PaperID, ann.ID); err != nil {
+	// Add to document's annotation index
+	if err := s.addToDocumentAnnotationsIndex(ann.DocumentID, ann.ID); err != nil {
 		// Log but don't fail
 	}
 
 	return nil
 }
 
-func (s *KVStore) GetAnnotations(paperID string) ([]*Annotation, error) {
+func (s *KVStore) GetAnnotations(documentID string) ([]*Annotation, error) {
 	ctx := context.Background()
 
-	// Get annotation IDs for this paper from the index
-	indexKey := s.generateKey("index", "paper:annotations:"+paperID)
+	// Get annotation IDs for this document from the index
+	indexKey := s.generateKey("index", "doc:annotations:"+documentID)
 	idsData, err := s.kv.Get(ctx, indexKey)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
@@ -719,7 +704,7 @@ func (s *KVStore) GetAnnotations(paperID string) ([]*Annotation, error) {
 func (s *KVStore) DeleteAnnotation(id string) error {
 	ctx := context.Background()
 
-	// Get annotation first to find its paper
+	// Get annotation first to find its document
 	key := s.generateKey("annotation", id)
 	data, err := s.kv.Get(ctx, key)
 	if err != nil {
@@ -733,17 +718,17 @@ func (s *KVStore) DeleteAnnotation(id string) error {
 		return fmt.Errorf("unmarshal annotation: %w", err)
 	}
 
-	// Remove from paper's annotation index
-	_ = s.removeFromPaperAnnotationsIndex(a.PaperID, id)
+	// Remove from document's annotation index
+	_ = s.removeFromDocumentAnnotationsIndex(a.DocumentID, id)
 
 	// Delete annotation
 	return s.kv.Delete(ctx, key)
 }
 
-func (s *KVStore) addToPaperAnnotationsIndex(paperID, annotationID string) error {
+func (s *KVStore) addToDocumentAnnotationsIndex(documentID, annotationID string) error {
 	ctx := context.Background()
-	indexKey := s.generateKey("index", "paper:annotations:" + paperID)
-	ids, err := s.getPaperAnnotationsIndex(paperID)
+	indexKey := s.generateKey("index", "doc:annotations:"+documentID)
+	ids, err := s.getDocumentAnnotationsIndex(documentID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
@@ -758,10 +743,10 @@ func (s *KVStore) addToPaperAnnotationsIndex(paperID, annotationID string) error
 	return s.kv.Set(ctx, indexKey, data)
 }
 
-func (s *KVStore) removeFromPaperAnnotationsIndex(paperID, annotationID string) error {
+func (s *KVStore) removeFromDocumentAnnotationsIndex(documentID, annotationID string) error {
 	ctx := context.Background()
-	indexKey := s.generateKey("index", "paper:annotations:" + paperID)
-	ids, err := s.getPaperAnnotationsIndex(paperID)
+	indexKey := s.generateKey("index", "doc:annotations:"+documentID)
+	ids, err := s.getDocumentAnnotationsIndex(documentID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil
@@ -778,9 +763,9 @@ func (s *KVStore) removeFromPaperAnnotationsIndex(paperID, annotationID string) 
 	return s.kv.Set(ctx, indexKey, data)
 }
 
-func (s *KVStore) getPaperAnnotationsIndex(paperID string) ([]string, error) {
+func (s *KVStore) getDocumentAnnotationsIndex(documentID string) ([]string, error) {
 	ctx := context.Background()
-	indexKey := s.generateKey("index", "paper:annotations:" + paperID)
+	indexKey := s.generateKey("index", "doc:annotations:"+documentID)
 	data, err := s.kv.Get(ctx, indexKey)
 	if err != nil {
 		return nil, err
@@ -788,6 +773,134 @@ func (s *KVStore) getPaperAnnotationsIndex(paperID string) ([]string, error) {
 	var ids []string
 	if err := json.Unmarshal(data, &ids); err != nil {
 		return nil, fmt.Errorf("unmarshal annotations index: %w", err)
+	}
+	return ids, nil
+}
+
+// Reading session operations (Phase 1)
+
+func (s *KVStore) StartSession(documentID string) (*ReadingSession, error) {
+	session := &ReadingSession{
+		ID:          fmt.Sprintf("session:%d", time.Now().UnixNano()),
+		DocumentID:  documentID,
+		StartAt:     time.Now(),
+	}
+	ctx := context.Background()
+	key := s.generateKey("session", session.ID)
+	data, err := json.Marshal(session)
+	if err != nil {
+		return nil, fmt.Errorf("marshal session: %w", err)
+	}
+	if err := s.kv.Set(ctx, key, data); err != nil {
+		return nil, err
+	}
+	// Add to document's sessions index
+	if err := s.addToDocumentSessionsIndex(documentID, session.ID); err != nil {
+		// Log but don't fail
+	}
+	return session, nil
+}
+
+func (s *KVStore) EndSession(sessionID string, pagesRead int, notes string) error {
+	ctx := context.Background()
+
+	// Get session first
+	key := s.generateKey("session", sessionID)
+	data, err := s.kv.Get(ctx, key)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	var session ReadingSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		return fmt.Errorf("unmarshal session: %w", err)
+	}
+
+	session.EndAt = time.Now()
+	session.PagesRead = pagesRead
+	session.Notes = notes
+
+	updatedData, err := json.Marshal(session)
+	if err != nil {
+		return fmt.Errorf("marshal session: %w", err)
+	}
+	return s.kv.Set(ctx, key, updatedData)
+}
+
+func (s *KVStore) ListSessions(documentID string) ([]*ReadingSession, error) {
+	ctx := context.Background()
+
+	indexKey := s.generateKey("index", "doc:sessions:"+documentID)
+	idsData, err := s.kv.Get(ctx, indexKey)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+
+	var ids []string
+	if err == nil {
+		if err := json.Unmarshal(idsData, &ids); err != nil {
+			ids = []string{}
+		}
+	}
+
+	var sessions []*ReadingSession
+	for _, id := range ids {
+		key := s.generateKey("session", id)
+		data, err := s.kv.Get(ctx, key)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue // Orphaned session
+			}
+			return nil, err
+		}
+		var sess ReadingSession
+		if err := json.Unmarshal(data, &sess); err != nil {
+			continue
+		}
+		sessions = append(sessions, &sess)
+	}
+
+	// Sort by StartAt descending (newest first)
+	for i := 1; i < len(sessions); i++ {
+		j := i
+		for j > 0 && sessions[j-1].StartAt.Before(sessions[j].StartAt) {
+			sessions[j-1], sessions[j] = sessions[j], sessions[j-1]
+			j--
+		}
+	}
+
+	return sessions, nil
+}
+
+func (s *KVStore) addToDocumentSessionsIndex(documentID, sessionID string) error {
+	ctx := context.Background()
+	indexKey := s.generateKey("index", "doc:sessions:"+documentID)
+	ids, err := s.getDocumentSessionsIndex(documentID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	for _, id := range ids {
+		if id == sessionID {
+			return nil
+		}
+	}
+	ids = append(ids, sessionID)
+	data, _ := json.Marshal(ids)
+	return s.kv.Set(ctx, indexKey, data)
+}
+
+func (s *KVStore) getDocumentSessionsIndex(documentID string) ([]string, error) {
+	ctx := context.Background()
+	indexKey := s.generateKey("index", "doc:sessions:"+documentID)
+	data, err := s.kv.Get(ctx, indexKey)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	if err := json.Unmarshal(data, &ids); err != nil {
+		return nil, fmt.Errorf("unmarshal sessions index: %w", err)
 	}
 	return ids, nil
 }

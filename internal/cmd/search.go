@@ -20,8 +20,8 @@ func newSearchCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
-		Short: "Search papers in the library",
-		Long: `Search across paper titles, abstracts, and notes.
+		Short: "Search documents in the library",
+		Long: `Search across document titles, abstracts, and notes.
 
 Examples:
   arc-library search "transformer"        # Search all fields
@@ -41,24 +41,24 @@ Examples:
 				Limit:  limit,
 			}
 
-			papers, err := store.ListPapers(opts)
+			documents, err := store.ListDocuments(opts)
 			if err != nil {
 				return err
 			}
 
-			if len(papers) == 0 {
-				fmt.Printf("No papers found matching %q\n", query)
+			if len(documents) == 0 {
+				fmt.Printf("No documents found matching %q\n", query)
 				return nil
 			}
 
 			if out.Is(output.OutputJSON) {
-				return output.JSON(papers)
+				return output.JSON(documents)
 			}
 
-			fmt.Printf("Found %d result(s) for %q:\n\n", len(papers), query)
+			fmt.Printf("Found %d result(s) for %q:\n\n", len(documents), query)
 
 			table := output.NewTable("Source ID", "Title", "Tags")
-			for _, p := range papers {
+			for _, p := range documents {
 				tags := ""
 				if len(p.Tags) > 0 {
 					tags = strings.Join(p.Tags, ", ")

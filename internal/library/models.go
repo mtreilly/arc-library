@@ -7,38 +7,61 @@ import (
 	"time"
 )
 
-// Paper represents a paper in the library with its metadata and user data.
-type Paper struct {
-	ID        string    `json:"id" yaml:"id"`
-	Path      string    `json:"path" yaml:"path"`
-	Source    string    `json:"source" yaml:"source"` // arxiv, local, url
-	SourceID  string    `json:"source_id,omitempty" yaml:"source_id,omitempty"`
-	Title     string    `json:"title" yaml:"title"`
-	Authors   []string  `json:"authors,omitempty" yaml:"authors,omitempty"`
-	Abstract  string    `json:"abstract,omitempty" yaml:"abstract,omitempty"`
-	Tags      []string  `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Notes     string    `json:"notes,omitempty" yaml:"notes,omitempty"`
-	Rating    int       `json:"rating,omitempty" yaml:"rating,omitempty"` // 1-5
-	ReadAt    time.Time `json:"read_at,omitempty" yaml:"read_at,omitempty"`
-	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
+// DocumentType represents the kind of document.
+type DocumentType string
+
+const (
+	DocTypePaper      DocumentType = "paper"      // arXiv, conference, journal
+	DocTypeBook       DocumentType = "book"       // Textbook, monograph
+	DocTypeArticle    DocumentType = "article"    // Web article, blog post
+	DocTypeVideo      DocumentType = "video"      // Lecture, tutorial
+	DocTypeNote       DocumentType = "note"       // User-created note
+	DocTypeRepo       DocumentType = "repo"       // Git repository
+	DocTypeOther      DocumentType = "other"      // Miscellaneous
+)
+
+// Document represents any item in the library.
+// It generalizes the previous "Paper" concept to support multiple content types.
+type Document struct {
+	ID          string         `json:"id" yaml:"id"`
+	Type        DocumentType   `json:"type" yaml:"type"`
+	Path        string         `json:"path" yaml:"path"`           // Local file or directory
+	Source      string         `json:"source" yaml:"source"`       // "arxiv", "local", "url", "doi", etc.
+	SourceID    string         `json:"source_id,omitempty" yaml:"source_id,omitempty"` // e.g., arXiv ID, DOI
+	Title       string         `json:"title" yaml:"title"`
+	Authors     []string       `json:"authors,omitempty" yaml:"authors,omitempty"`
+	Abstract    string         `json:"abstract,omitempty" yaml:"abstract,omitempty"`
+	FullText    string         `json:"full_text,omitempty" yaml:"full_text,omitempty"` // Extracted text (optional)
+	Tags        []string       `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Notes       string         `json:"notes,omitempty" yaml:"notes,omitempty"`
+	Rating      int            `json:"rating,omitempty" yaml:"rating,omitempty"` // 1-5
+	ReadAt      time.Time      `json:"read_at,omitempty" yaml:"read_at,omitempty"`
+	Status      ReadingStatus  `json:"status,omitempty" yaml:"status,omitempty"`
+	CreatedAt   time.Time      `json:"created_at" yaml:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at" yaml:"updated_at"`
+
+	// Type-specific metadata (unstructured)
+	Meta        JSONMap        `json:"meta,omitempty" yaml:"meta,omitempty"`
 }
 
-// Collection represents a named group of papers.
+// JSONMap is a flexible map for type-specific metadata.
+type JSONMap map[string]any
+
+// Collection represents a named group of documents.
 type Collection struct {
 	ID          string    `json:"id" yaml:"id"`
 	Name        string    `json:"name" yaml:"name"`
 	Description string    `json:"description,omitempty" yaml:"description,omitempty"`
-	PaperIDs    []string  `json:"paper_ids" yaml:"paper_ids"`
+	DocumentIDs []string  `json:"document_ids" yaml:"document_ids"` // Renamed from PaperIDs
 	CreatedAt   time.Time `json:"created_at" yaml:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" yaml:"updated_at"`
 }
 
-// Annotation represents a highlight or note on a specific part of a paper.
+// Annotation represents a highlight or note on a specific part of a document.
 type Annotation struct {
 	ID        string    `json:"id" yaml:"id"`
-	PaperID   string    `json:"paper_id" yaml:"paper_id"`
-	Type      string    `json:"type" yaml:"type"` // highlight, note, bookmark
+	DocumentID string   `json:"document_id" yaml:"document_id"` // Renamed from PaperID
+	Type      string    `json:"type" yaml:"type"`               // highlight, note, bookmark
 	Content   string    `json:"content,omitempty" yaml:"content,omitempty"`
 	Page      int       `json:"page,omitempty" yaml:"page,omitempty"`
 	Position  string    `json:"position,omitempty" yaml:"position,omitempty"` // JSON coordinates
@@ -46,7 +69,17 @@ type Annotation struct {
 	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
 }
 
-// ReadingStatus represents the reading progress of a paper.
+// ReadingSession tracks time spent reading a document.
+type ReadingSession struct {
+	ID        string    `json:"id" yaml:"id"`
+	DocumentID string   `json:"document_id" yaml:"document_id"`
+	StartAt   time.Time `json:"start_at" yaml:"start_at"`
+	EndAt     time.Time `json:"end_at,omitempty" yaml:"end_at,omitempty"`
+	PagesRead int       `json:"pages_read,omitempty" yaml:"pages_read,omitempty"`
+	Notes     string    `json:"notes,omitempty" yaml:"notes,omitempty"`
+}
+
+// ReadingStatus represents the reading progress of a document.
 type ReadingStatus string
 
 const (
@@ -55,3 +88,12 @@ const (
 	StatusCompleted ReadingStatus = "completed"
 	StatusArchived  ReadingStatus = "archived"
 )
+
+// ListOptions filters document listing.
+type ListOptions struct {
+	Tag    string
+	Source string
+	Search string
+	Type   string
+	Limit  int
+}

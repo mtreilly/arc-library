@@ -16,8 +16,8 @@ func newCollectionCmd(cfg *config.Config, store library.LibraryStore) *cobra.Com
 	cmd := &cobra.Command{
 		Use:     "collection",
 		Aliases: []string{"coll", "c"},
-		Short:   "Manage paper collections",
-		Long:    `Create, list, and manage collections of papers.`,
+		Short:   "Manage document collections",
+		Long:    `Create, list, and manage collections of documents.`,
 	}
 
 	cmd.AddCommand(newCollectionCreateCmd(store))
@@ -85,10 +85,10 @@ func newCollectionListCmd(store library.LibraryStore) *cobra.Command {
 				return output.JSON(collections)
 			}
 
-			table := output.NewTable("Name", "Papers", "Description")
+			table := output.NewTable("Name", "Documents", "Description")
 			for _, c := range collections {
 				desc := truncate(c.Description, 40)
-				table.AddRow(c.Name, fmt.Sprintf("%d", len(c.PaperIDs)), desc)
+				table.AddRow(c.Name, fmt.Sprintf("%d", len(c.DocumentIDs)), desc)
 			}
 			table.Render()
 
@@ -106,7 +106,7 @@ func newCollectionShowCmd(store library.LibraryStore) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "show <name>",
-		Short: "Show papers in a collection",
+		Short: "Show documents in a collection",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := out.Resolve(); err != nil {
@@ -125,26 +125,26 @@ func newCollectionShowCmd(store library.LibraryStore) *cobra.Command {
 			if c.Description != "" {
 				fmt.Printf("Description: %s\n", c.Description)
 			}
-			fmt.Printf("Papers: %d\n\n", len(c.PaperIDs))
+			fmt.Printf("Documents: %d\n\n", len(c.DocumentIDs))
 
-			if len(c.PaperIDs) == 0 {
+			if len(c.DocumentIDs) == 0 {
 				return nil
 			}
 
 			if out.Is(output.OutputJSON) {
-				var papers []*library.Paper
-				for _, id := range c.PaperIDs {
-					p, _ := store.GetPaper(id)
+				var documents []*library.Document
+				for _, id := range c.DocumentIDs {
+					p, _ := store.GetDocument(id)
 					if p != nil {
-						papers = append(papers, p)
+						documents = append(documents, p)
 					}
 				}
-				return output.JSON(papers)
+				return output.JSON(documents)
 			}
 
 			table := output.NewTable("Source ID", "Title", "Tags")
-			for _, id := range c.PaperIDs {
-				p, err := store.GetPaper(id)
+			for _, id := range c.DocumentIDs {
+				p, err := store.GetDocument(id)
 				if err != nil || p == nil {
 					continue
 				}
@@ -167,12 +167,12 @@ func newCollectionShowCmd(store library.LibraryStore) *cobra.Command {
 
 func newCollectionAddCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
-		Use:   "add <collection> <paper-id> [paper-id...]",
-		Short: "Add papers to a collection",
+		Use:   "add <collection> <document-id> [document-id...]",
+		Short: "Add documents to a collection",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			collName := args[0]
-			paperIDs := args[1:]
+			documentIDs := args[1:]
 
 			c, err := store.GetCollection(collName)
 			if err != nil {
@@ -183,29 +183,29 @@ func newCollectionAddCmd(store library.LibraryStore) *cobra.Command {
 			}
 
 			added := 0
-			for _, pid := range paperIDs {
-				paper, _ := store.GetPaper(pid)
-				if paper == nil {
+			for _, pid := range documentIDs {
+				document, _ := store.GetDocument(pid)
+				if document == nil {
 					// Try to find by source ID
-					papers, _ := store.ListPapers(&library.ListOptions{Search: pid, Limit: 1})
-					if len(papers) > 0 {
-						paper = papers[0]
+					documents, _ := store.ListDocuments(&library.ListOptions{Search: pid, Limit: 1})
+					if len(documents) > 0 {
+						document = documents[0]
 					}
 				}
-				if paper == nil {
-					fmt.Printf("Paper not found: %s\n", pid)
+				if document == nil {
+					fmt.Printf("Document not found: %s\n", pid)
 					continue
 				}
 
-				if err := store.AddToCollection(c.ID, paper.ID); err != nil {
+				if err := store.AddToCollection(c.ID, document.ID); err != nil {
 					fmt.Printf("Failed to add %s: %v\n", pid, err)
 					continue
 				}
-				fmt.Printf("Added: %s\n", truncate(paper.Title, 50))
+				fmt.Printf("Added: %s\n", truncate(document.Title, 50))
 				added++
 			}
 
-			fmt.Printf("\nAdded %d paper(s) to %s.\n", added, c.Name)
+			fmt.Printf("\nAdded %d document(s) to %s.\n", added, c.Name)
 			return nil
 		},
 	}
@@ -213,12 +213,12 @@ func newCollectionAddCmd(store library.LibraryStore) *cobra.Command {
 
 func newCollectionRemoveCmd(store library.LibraryStore) *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove <collection> <paper-id> [paper-id...]",
-		Short: "Remove papers from a collection",
+		Use:   "remove <collection> <document-id> [document-id...]",
+		Short: "Remove documents from a collection",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			collName := args[0]
-			paperIDs := args[1:]
+			documentIDs := args[1:]
 
 			c, err := store.GetCollection(collName)
 			if err != nil {
@@ -229,28 +229,28 @@ func newCollectionRemoveCmd(store library.LibraryStore) *cobra.Command {
 			}
 
 			removed := 0
-			for _, pid := range paperIDs {
-				paper, _ := store.GetPaper(pid)
-				if paper == nil {
-					papers, _ := store.ListPapers(&library.ListOptions{Search: pid, Limit: 1})
-					if len(papers) > 0 {
-						paper = papers[0]
+			for _, pid := range documentIDs {
+				document, _ := store.GetDocument(pid)
+				if document == nil {
+					documents, _ := store.ListDocuments(&library.ListOptions{Search: pid, Limit: 1})
+					if len(documents) > 0 {
+						document = documents[0]
 					}
 				}
-				if paper == nil {
-					fmt.Printf("Paper not found: %s\n", pid)
+				if document == nil {
+					fmt.Printf("Document not found: %s\n", pid)
 					continue
 				}
 
-				if err := store.RemoveFromCollection(c.ID, paper.ID); err != nil {
+				if err := store.RemoveFromCollection(c.ID, document.ID); err != nil {
 					fmt.Printf("Failed to remove %s: %v\n", pid, err)
 					continue
 				}
-				fmt.Printf("Removed: %s\n", truncate(paper.Title, 50))
+				fmt.Printf("Removed: %s\n", truncate(document.Title, 50))
 				removed++
 			}
 
-			fmt.Printf("\nRemoved %d paper(s) from %s.\n", removed, c.Name)
+			fmt.Printf("\nRemoved %d document(s) from %s.\n", removed, c.Name)
 			return nil
 		},
 	}
@@ -272,8 +272,8 @@ func newCollectionDeleteCmd(store library.LibraryStore) *cobra.Command {
 				return fmt.Errorf("collection not found: %s", args[0])
 			}
 
-			if !force && len(c.PaperIDs) > 0 {
-				return fmt.Errorf("collection %q has %d papers, use --force to delete", c.Name, len(c.PaperIDs))
+			if !force && len(c.DocumentIDs) > 0 {
+				return fmt.Errorf("collection %q has %d documents, use --force to delete", c.Name, len(c.DocumentIDs))
 			}
 
 			if err := store.DeleteCollection(c.ID); err != nil {
@@ -285,7 +285,7 @@ func newCollectionDeleteCmd(store library.LibraryStore) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "Delete even if collection has papers")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Delete even if collection has documents")
 
 	return cmd
 }

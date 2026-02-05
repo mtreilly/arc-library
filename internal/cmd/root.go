@@ -14,12 +14,12 @@ func NewRootCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 
 	root := &cobra.Command{
 		Use:   "arc-library",
-		Short: "Manage your research paper library",
-		Long: `Organize, tag, and annotate your research papers.
+		Short: "Manage your research document library",
+		Long: `Organize, tag, and annotate your research documents.
 
 arc-library provides tools to:
-- Import papers from various sources (arxiv, local files)
-- Tag and organize papers
+- Import documents from various sources (arxiv, local files)
+- Tag and organize documents
 - Create collections for projects
 - Add annotations and notes
 - Search across your library`,
@@ -31,6 +31,8 @@ arc-library provides tools to:
 	root.AddCommand(newListCmd(cfg, store))
 	root.AddCommand(newSearchCmd(cfg, store))
 	root.AddCommand(newAnnotateCmd(cfg, store))
+	root.AddCommand(newSessionCmd(cfg, store))
+	root.AddCommand(newStatsCmd(cfg, store))
 
 	return root
 }

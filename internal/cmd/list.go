@@ -21,11 +21,11 @@ func newListCmd(cfg *config.Config, store library.LibraryStore) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List papers in the library",
-		Long: `List all papers imported into the library.
+		Short: "List documents in the library",
+		Long: `List all documents imported into the library.
 
 Examples:
-  arc-library list                  # List all papers
+  arc-library list                  # List all documents
   arc-library list --tag ml         # Filter by tag
   arc-library list --source arxiv   # Filter by source
   arc-library list --limit 20       # Limit results`,
@@ -40,23 +40,23 @@ Examples:
 				Limit:  limit,
 			}
 
-			papers, err := store.ListPapers(opts)
+			documents, err := store.ListDocuments(opts)
 			if err != nil {
 				return err
 			}
 
-			if len(papers) == 0 {
-				fmt.Println("No papers found in library.")
-				fmt.Println("Use 'arc-library import <path>' to add papers.")
+			if len(documents) == 0 {
+				fmt.Println("No documents found in library.")
+				fmt.Println("Use 'arc-library import <path>' to add documents.")
 				return nil
 			}
 
 			if out.Is(output.OutputJSON) {
-				return output.JSON(papers)
+				return output.JSON(documents)
 			}
 
 			table := output.NewTable("Source ID", "Title", "Tags")
-			for _, p := range papers {
+			for _, p := range documents {
 				tags := ""
 				if len(p.Tags) > 0 {
 					tags = strings.Join(p.Tags, ", ")
@@ -72,7 +72,7 @@ Examples:
 			}
 			table.Render()
 
-			fmt.Printf("\nTotal: %d paper(s)\n", len(papers))
+			fmt.Printf("\nTotal: %d document(s)\n", len(documents))
 			return nil
 		},
 	}
