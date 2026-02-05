@@ -95,6 +95,40 @@ func (s *Store) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_sessions_document ON reading_sessions(document_id);
 	`;
 
+	// Flashcards tables
+	flashcardSchema := `
+	CREATE TABLE IF NOT EXISTS flashcards (
+		id TEXT PRIMARY KEY,
+		document_id TEXT NOT NULL,
+		type TEXT NOT NULL,
+		front TEXT NOT NULL,
+		back TEXT,
+		cloze TEXT,
+		tags TEXT,
+		due_at DATETIME NOT NULL,
+		interval INTEGER NOT NULL,
+		ease REAL NOT NULL,
+		last_review DATETIME,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS flashcard_reviews (
+		id TEXT PRIMARY KEY,
+		flashcard_id TEXT NOT NULL,
+		quality INTEGER NOT NULL,
+		reviewed_at DATETIME NOT NULL,
+		prev_interval INTEGER,
+		prev_ease REAL,
+		FOREIGN KEY (flashcard_id) REFERENCES flashcards(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_flashcards_due ON flashcards(due_at);
+	CREATE INDEX IF NOT EXISTS idx_flashcards_document ON flashcards(document_id);
+	CREATE INDEX IF NOT EXISTS idx_reviews_flashcard ON flashcard_reviews(flashcard_id);
+	`
+
 	// Full-text search virtual table (FTS5)
 	ftsSchema := `
 	CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
@@ -129,8 +163,12 @@ func (s *Store) initSchema() error {
 	END;
 	`
 
-	// Execute both schema batches
+	// Execute all schema batches
 	_, err := s.db.Exec(schema)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(flashcardSchema)
 	if err != nil {
 		return err
 	}
@@ -613,4 +651,263 @@ func (s *Store) ListSessions(documentID string) ([]*ReadingSession, error) {
 		sessions = append(sessions, &s)
 	}
 	return sessions, nil
+}
+
+// Flashcard operations (Phase 2)
+
+func (s *Store) AddFlashcard(card *Flashcard) error {
+	if card.ID == "" {
+		card.ID = uuid.New().String()
+	}
+	now := time.Now()
+	card.CreatedAt = now
+	card.UpdatedAt = now
+
+	tagsJSON, _ := json.Marshal(card.Tags)
+
+	_, err := s.db.Exec(`
+		INSERT INTO flashcards (id, document_id, type, front, back, cloze, tags, due_at, interval, ease, last_review, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, card.ID, card.DocumentID, card.Type, card.Front, card.Back, card.Cloze, string(tagsJSON), card.DueAt, card.Interval, card.Ease, card.LastReview, card.CreatedAt, card.UpdatedAt)
+
+	return err
+}
+
+func (s *Store) GetFlashcard(id string) (*Flashcard, error) {
+	row := s.db.QueryRow(`
+		SELECT id, document_id, type, front, back, cloze, tags, due_at, interval, ease, last_review, created_at, updated_at
+		FROM flashcards WHERE id = ?
+	`, id)
+	return scanFlashcard(row)
+}
+
+func scanFlashcard(row *sql.Row) (*Flashcard, error) {
+	var c Flashcard
+	var tagsJSON string
+	var lastReview sql.NullTime
+
+	err := row.Scan(&c.ID, &c.DocumentID, &c.Type, &c.Front, &c.Back, &c.Cloze, &tagsJSON, &c.DueAt, &c.Interval, &c.Ease, &lastReview, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if lastReview.Valid {
+		c.LastReview = lastReview.Time
+	}
+
+	json.Unmarshal([]byte(tagsJSON), &c.Tags)
+	return &c, nil
+}
+
+func scanFlashcardFromRows(rows *sql.Rows) (*Flashcard, error) {
+	var c Flashcard
+	var tagsJSON string
+	var lastReview sql.NullTime
+
+	err := rows.Scan(&c.ID, &c.DocumentID, &c.Type, &c.Front, &c.Back, &c.Cloze, &tagsJSON, &c.DueAt, &c.Interval, &c.Ease, &lastReview, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if lastReview.Valid {
+		c.LastReview = lastReview.Time
+	}
+
+	json.Unmarshal([]byte(tagsJSON), &c.Tags)
+	return &c, nil
+}
+
+func (s *Store) ListFlashcards(opts *FlashcardListOptions) ([]*Flashcard, error) {
+	query := `SELECT id, document_id, type, front, back, cloze, tags, due_at, interval, ease, last_review, created_at, updated_at FROM flashcards WHERE 1=1`
+	var args []any
+
+	if opts != nil {
+		if opts.DocumentID != "" {
+			query += ` AND document_id = ?`
+			args = append(args, opts.DocumentID)
+		}
+		if opts.Tag != "" {
+			query += ` AND tags LIKE ?`
+			args = append(args, "%"+opts.Tag+"%")
+		}
+		if opts.Due {
+			query += ` AND due_at <= ?`
+			args = append(args, time.Now())
+		}
+	}
+
+	query += ` ORDER BY due_at ASC`
+
+	if opts != nil && opts.Limit > 0 {
+		query += fmt.Sprintf(` LIMIT %d`, opts.Limit)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cards []*Flashcard
+	for rows.Next() {
+		c, err := scanFlashcardFromRows(rows)
+		if err != nil {
+			continue
+		}
+		cards = append(cards, c)
+	}
+
+	return cards, nil
+}
+
+func (s *Store) UpdateFlashcard(card *Flashcard) error {
+	card.UpdatedAt = time.Now()
+
+	tagsJSON, _ := json.Marshal(card.Tags)
+
+	_, err := s.db.Exec(`
+		UPDATE flashcards
+		SET document_id = ?, type = ?, front = ?, back = ?, cloze = ?, tags = ?, due_at = ?, interval = ?, ease = ?, last_review = ?, updated_at = ?
+		WHERE id = ?
+	`, card.DocumentID, card.Type, card.Front, card.Back, card.Cloze, string(tagsJSON), card.DueAt, card.Interval, card.Ease, card.LastReview, card.UpdatedAt, card.ID)
+
+	return err
+}
+
+func (s *Store) DeleteFlashcard(id string) error {
+	_, err := s.db.Exec(`DELETE FROM flashcards WHERE id = ?`, id)
+	return err
+}
+
+// ReviewFlashcard processes a quality rating (0-5) using the SM-2 algorithm
+// and updates the card's interval and ease. Returns the updated card.
+func (s *Store) ReviewFlashcard(id string, quality int) (*Flashcard, error) {
+	card, err := s.GetFlashcard(id)
+	if err != nil {
+		return nil, err
+	}
+	if card == nil {
+		return nil, fmt.Errorf("flashcard not found: %s", id)
+	}
+
+	now := time.Now()
+
+	// Capture previous values for review record
+	prevInterval := card.Interval
+	prevEase := card.Ease
+	if prevEase == 0 {
+		prevEase = 2.5 // initial default
+	}
+
+	// SM-2 algorithm
+	// quality: 0-5 (0=complete blackout, 5=perfect)
+	// ease: factor by which interval multiplies (start at 2.5, range 1.3-2.5)
+	// interval: days until next review
+
+	ease := prevEase
+
+	// Update ease
+	ease = ease + (0.1 - (float64(5-quality)*(0.08+float64(5-quality)*0.02)))
+	if ease < 1.3 {
+		ease = 1.3
+	}
+	if ease > 2.5 {
+		ease = 2.5
+	}
+
+	// Calculate new interval
+	var interval int
+	if quality < 3 {
+		// Fail: reset to 1 day
+		interval = 1
+	} else {
+		// Graduating or higher
+		if prevInterval == 0 {
+			// First successful review: interval = 1
+			interval = 1
+		} else if prevInterval == 1 {
+			// Second: interval = 6 days
+			interval = 6
+		} else {
+			// Normal: interval = interval * ease
+			interval = int(float64(prevInterval) * ease)
+		}
+	}
+
+	// Update card
+	card.Interval = interval
+	card.Ease = ease
+	card.DueAt = now.AddDate(0, 0, interval)
+	card.LastReview = now
+	card.UpdatedAt = now
+
+	// Save updated card
+	if err := s.UpdateFlashcard(card); err != nil {
+		return nil, err
+	}
+
+	// Record the review
+	review := &FlashcardReview{
+		ID:            fmt.Sprintf("review:%d", time.Now().UnixNano()),
+		FlashcardID:   id,
+		Quality:       quality,
+		ReviewedAt:   now,
+		PrevInterval: prevInterval,
+		PrevEase:     prevEase,
+	}
+	_, err = s.db.Exec(`
+		INSERT INTO flashcard_reviews (id, flashcard_id, quality, reviewed_at, prev_interval, prev_ease)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, review.ID, review.FlashcardID, review.Quality, review.ReviewedAt, review.PrevInterval, review.PrevEase)
+	if err != nil {
+		// Log but don't fail the review
+		fmt.Printf("Warning: could not store review: %v\n", err)
+	}
+
+	return card, nil
+}
+
+func (s *Store) ListFlashcardReviews(flashcardID string) ([]*FlashcardReview, error) {
+	rows, err := s.db.Query(`
+		SELECT id, flashcard_id, quality, reviewed_at, prev_interval, prev_ease
+		FROM flashcard_reviews WHERE flashcard_id = ? ORDER BY reviewed_at DESC
+	`, flashcardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reviews []*FlashcardReview
+	for rows.Next() {
+		var r FlashcardReview
+		if err := rows.Scan(&r.ID, &r.FlashcardID, &r.Quality, &r.ReviewedAt, &r.PrevInterval, &r.PrevEase); err != nil {
+			continue
+		}
+		reviews = append(reviews, &r)
+	}
+	return reviews, nil
+}
+
+func (s *Store) GetDueFlashcards(now time.Time) ([]*Flashcard, error) {
+	rows, err := s.db.Query(`
+		SELECT id, document_id, type, front, back, cloze, tags, due_at, interval, ease, last_review, created_at, updated_at
+		FROM flashcards WHERE due_at <= ? ORDER BY due_at ASC
+	`, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cards []*Flashcard
+	for rows.Next() {
+		c, err := scanFlashcardFromRows(rows)
+		if err != nil {
+			continue
+		}
+		cards = append(cards, c)
+	}
+	return cards, nil
 }
