@@ -144,6 +144,20 @@ func (s *Store) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_tasks_collection ON tasks(collection_id);
 	CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 	CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_at);
+
+	CREATE TABLE IF NOT EXISTS saved_searches (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		query TEXT NOT NULL,
+		tag TEXT,
+		source TEXT,
+		type TEXT,
+		description TEXT,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_saved_searches_name ON saved_searches(name);
 	`
 
 	// Full-text search virtual table (FTS5)
@@ -1059,5 +1073,83 @@ func (s *Store) UpdateTask(t *Task) error {
 
 func (s *Store) DeleteTask(id string) error {
 	_, err := s.db.Exec(`DELETE FROM tasks WHERE id = ?`, id)
+	return err
+}
+
+// SavedSearch operations
+
+func (s *Store) SaveSearch(ss *SavedSearch) error {
+	if ss.ID == "" {
+		ss.ID = fmt.Sprintf("search:%d", time.Now().UnixNano())
+	}
+	ss.CreatedAt = time.Now()
+	ss.UpdatedAt = time.Now()
+
+	_, err := s.db.Exec(`
+		INSERT INTO saved_searches (id, name, query, tag, source, type, description, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET
+			query = excluded.query,
+			tag = excluded.tag,
+			source = excluded.source,
+			type = excluded.type,
+			description = excluded.description,
+			updated_at = excluded.updated_at
+	`, ss.ID, ss.Name, ss.Query, ss.Tag, ss.Source, ss.Type, ss.Description, ss.CreatedAt, ss.UpdatedAt)
+
+	return err
+}
+
+func (s *Store) GetSavedSearch(idOrName string) (*SavedSearch, error) {
+	var ss SavedSearch
+	// Try by ID first, then by name
+	err := s.db.QueryRow(`
+		SELECT id, name, query, tag, source, type, description, created_at, updated_at
+		FROM saved_searches WHERE id = ?
+	`, idOrName).Scan(&ss.ID, &ss.Name, &ss.Query, &ss.Tag, &ss.Source, &ss.Type, &ss.Description, &ss.CreatedAt, &ss.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		// Try by name
+		err = s.db.QueryRow(`
+			SELECT id, name, query, tag, source, type, description, created_at, updated_at
+			FROM saved_searches WHERE name = ?
+		`, idOrName).Scan(&ss.ID, &ss.Name, &ss.Query, &ss.Tag, &ss.Source, &ss.Type, &ss.Description, &ss.CreatedAt, &ss.UpdatedAt)
+	}
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &ss, nil
+}
+
+func (s *Store) ListSavedSearches() ([]*SavedSearch, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, query, tag, source, type, description, created_at, updated_at
+		FROM saved_searches ORDER BY updated_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var searches []*SavedSearch
+	for rows.Next() {
+		var ss SavedSearch
+		err := rows.Scan(&ss.ID, &ss.Name, &ss.Query, &ss.Tag, &ss.Source, &ss.Type, &ss.Description, &ss.CreatedAt, &ss.UpdatedAt)
+		if err != nil {
+			continue
+		}
+		searches = append(searches, &ss)
+	}
+
+	return searches, nil
+}
+
+func (s *Store) DeleteSavedSearch(id string) error {
+	_, err := s.db.Exec(`DELETE FROM saved_searches WHERE id = ?`, id)
 	return err
 }

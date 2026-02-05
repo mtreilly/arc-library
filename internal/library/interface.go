@@ -56,4 +56,10 @@ type LibraryStore interface {
 	ListTasks(opts *TaskListOptions) ([]*Task, error)
 	UpdateTask(*Task) error
 	DeleteTask(id string) error
+
+	// SavedSearch operations
+	SaveSearch(*SavedSearch) error
+	GetSavedSearch(idOrName string) (*SavedSearch, error)
+	ListSavedSearches() ([]*SavedSearch, error)
+	DeleteSavedSearch(id string) error
 }
